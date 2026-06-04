@@ -80,8 +80,8 @@ Setup singkat:
 Project ini adalah monorepo, jadi untuk service backend di Railway gunakan konfigurasi berikut:
 
 1. Buat service baru dari repository ini.
-2. Set `Root Directory` ke `/apps/backend`.
-3. Set `Config File` ke `/apps/backend/railway.toml`.
+2. Set `Root Directory` ke `apps/backend`.
+3. Set `Config File` ke `apps/backend/railway.toml`.
 4. Pastikan domain publik Railway sudah digenerate.
 5. Isi semua environment variable yang dibutuhkan di tab `Variables`.
 
@@ -89,7 +89,7 @@ Start command dan healthcheck sudah disiapkan di file `railway.toml`:
 
 ```toml
 [deploy]
-startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+startCommand = "python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT"
 healthcheckPath = "/health"
 ```
 
