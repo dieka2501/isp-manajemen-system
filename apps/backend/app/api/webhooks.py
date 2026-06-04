@@ -70,3 +70,17 @@ async def receive_fonnte_webhook(
         "updated_range": updates.get("updatedRange"),
         "updated_rows": updates.get("updatedRows"),
     }
+
+
+@webhooks_router.get("/fonnte")
+async def verify_fonnte_webhook(
+    secret: str | None = Query(default=None),
+) -> dict[str, Any]:
+    settings = get_settings()
+    _validate_secret(secret, settings.fonnte_webhook_secret)
+
+    return {
+        "status": "ok",
+        "message": "Fonnte webhook endpoint is ready.",
+        "method": "GET",
+    }

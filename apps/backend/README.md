@@ -33,6 +33,7 @@ Webhook ini menerima chat masuk dari Fonnte lalu menyimpan payload ke Google She
 Endpoint:
 
 ```text
+GET /api/v1/webhooks/fonnte
 POST /api/v1/webhooks/fonnte
 ```
 
