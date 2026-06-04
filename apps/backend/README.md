@@ -1,10 +1,3 @@
-# Constrains
-- Selalu buat branch dan commit di branch itu.
-- Jangan pernah commit di brach "main"
-- Selalu pilih python untuk backend
-- dan JS untuk FE
-
-
 # Backend Module
 
 Backend module awal untuk ISP Manajemen System menggunakan FastAPI.
@@ -82,3 +75,38 @@ Setup singkat:
 4. Jalankan backend dengan `uvicorn app.main:app --reload`.
 5. Di dashboard Fonnte, isi webhook URL ke endpoint di atas dan aktifkan auto read.
 
+## Deploy ke Railway
+
+Project ini adalah monorepo, jadi untuk service backend di Railway gunakan konfigurasi berikut:
+
+1. Buat service baru dari repository ini.
+2. Set `Root Directory` ke `/apps/backend`.
+3. Set `Config File` ke `/apps/backend/railway.toml`.
+4. Pastikan domain publik Railway sudah digenerate.
+5. Isi semua environment variable yang dibutuhkan di tab `Variables`.
+
+Start command dan healthcheck sudah disiapkan di file `railway.toml`:
+
+```toml
+[deploy]
+startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/health"
+```
+
+Environment variable minimum di Railway:
+
+```bash
+APP_ENV=production
+APP_DEBUG=false
+FONNTE_TOKEN=
+FONNTE_WEBHOOK_SECRET=
+GOOGLE_SHEETS_SPREADSHEET_ID=
+GOOGLE_SHEETS_WORKSHEET_NAME=incoming_whatsapp
+GOOGLE_SERVICE_ACCOUNT_JSON=
+```
+
+Setelah deploy berhasil, webhook Fonnte bisa diarahkan ke:
+
+```text
+https://domain-railway-anda/api/v1/webhooks/fonnte?secret=isi_rahasia_anda
+```
