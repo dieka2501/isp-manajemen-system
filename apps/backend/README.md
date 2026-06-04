@@ -85,6 +85,9 @@ Project ini adalah monorepo, jadi untuk service backend di Railway gunakan konfi
 4. Pastikan domain publik Railway sudah digenerate.
 5. Isi semua environment variable yang dibutuhkan di tab `Variables`.
 
+Catatan:
+Railway akan lebih stabil membaca dependency backend ini lewat `requirements.txt`, jadi file tersebut sudah disediakan berdampingan dengan `pyproject.toml`.
+
 Start command dan healthcheck sudah disiapkan di file `railway.toml`:
 
 ```toml
