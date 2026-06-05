@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from dataclasses import dataclass
 from typing import Any
 
 from app.core.config import Settings
@@ -20,6 +21,16 @@ WHATSAPP_LOG_HEADERS = [
     "location",
     "raw_payload",
 ]
+PRODUCT_HEADER_ALIASES = (
+    "nama product",
+    "nama produk",
+    "product name",
+    "product",
+    "nama_product",
+    "nama_produk",
+)
+TYPE_HEADER_ALIASES = ("type", "tipe")
+STOCK_HEADER_ALIASES = ("stock", "stok")
 
 
 def _import_google_clients() -> tuple[Any, Any, Any]:
@@ -48,6 +59,34 @@ def _stringify(value: Any) -> str:
     return str(value)
 
 
+def _normalize_header(value: str) -> str:
+    return " ".join(
+        "".join(char.lower() if char.isalnum() else " " for char in value).split()
+    )
+
+
+def _cell(row: list[str], index: int | None) -> str:
+    if index is None or index >= len(row):
+        return ""
+    return _stringify(row[index])
+
+
+@dataclass(frozen=True)
+class StockMatch:
+    product_name: str
+    product_type: str
+    stock: str
+    row_number: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "product_name": self.product_name,
+            "product_type": self.product_type,
+            "stock": self.stock,
+            "row_number": self.row_number,
+        }
+
+
 class GoogleSheetsLogger:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -74,6 +113,68 @@ class GoogleSheetsLogger:
             .execute()
         )
 
+    def search_stock_products(self, query_tokens: list[str], limit: int = 5) -> list[StockMatch]:
+        if not self.settings.google_sheets_spreadsheet_id:
+            raise ValueError("GOOGLE_SHEETS_SPREADSHEET_ID is not configured.")
+        if not query_tokens:
+            return []
+
+        service = self._build_service()
+        response = (
+            service.spreadsheets()
+            .values()
+            .get(
+                spreadsheetId=self.settings.google_sheets_spreadsheet_id,
+                range=_sheet_range(self.settings.google_sheets_stock_worksheet_name, "A:Z"),
+            )
+            .execute()
+        )
+        rows = response.get("values", [])
+        if len(rows) < 2:
+            return []
+
+        headers = [_normalize_header(_stringify(header)) for header in rows[0]]
+        product_index = self._find_index(headers, PRODUCT_HEADER_ALIASES)
+        type_index = self._find_index(headers, TYPE_HEADER_ALIASES)
+        stock_index = self._find_index(headers, STOCK_HEADER_ALIASES)
+
+        if product_index is None:
+            raise ValueError(
+                "Stock sheet must contain a product name column such as `nama product`."
+            )
+
+        normalized_tokens = [_normalize_header(token) for token in query_tokens if token.strip()]
+        ranked_rows: list[tuple[int, int, StockMatch]] = []
+        for row_number, row in enumerate(rows[1:], start=2):
+            product_name = _cell(row, product_index)
+            if not product_name:
+                continue
+
+            normalized_product = _normalize_header(product_name)
+            score = sum(token in normalized_product for token in normalized_tokens)
+            if score == 0:
+                continue
+
+            ranked_rows.append(
+                (
+                    score,
+                    -len(product_name),
+                    StockMatch(
+                        product_name=product_name,
+                        product_type=_cell(row, type_index),
+                        stock=_cell(row, stock_index) or "0",
+                        row_number=row_number,
+                    ),
+                )
+            )
+
+        ranked_rows.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        if not ranked_rows:
+            return []
+
+        best_score = ranked_rows[0][0]
+        return [match for score, _, match in ranked_rows if score == best_score][:limit]
+
     def _build_service(self) -> Any:
         service_account, build, _ = _import_google_clients()
         credentials = self._load_credentials(service_account)
@@ -99,6 +200,13 @@ class GoogleSheetsLogger:
         raise ValueError(
             "Google credential is not configured. Set GOOGLE_SERVICE_ACCOUNT_FILE or GOOGLE_SERVICE_ACCOUNT_JSON."
         )
+
+    def _find_index(self, normalized_headers: list[str], aliases: tuple[str, ...]) -> int | None:
+        alias_set = {_normalize_header(alias) for alias in aliases}
+        for index, header in enumerate(normalized_headers):
+            if header in alias_set:
+                return index
+        return None
 
     def _ensure_worksheet_exists(self, service: Any) -> None:
         spreadsheet = (

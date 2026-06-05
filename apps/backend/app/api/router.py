@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from app.api.chat import chat_router
 from app.api.webhooks import webhooks_router
 
 api_router = APIRouter()
@@ -12,3 +13,4 @@ def api_root() -> dict[str, str]:
 
 
 api_router.include_router(webhooks_router)
+api_router.include_router(chat_router)

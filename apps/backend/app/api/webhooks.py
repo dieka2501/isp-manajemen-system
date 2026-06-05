@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.core.config import get_settings
-from app.services.google_sheets import GoogleSheetsLogger
+from app.services.chatbot import InventoryChatService
 
 webhooks_router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -45,7 +45,7 @@ async def receive_fonnte_webhook(
         ) from exc
 
     try:
-        result = GoogleSheetsLogger(settings).append_whatsapp_message(payload)
+        result = InventoryChatService(settings).handle_incoming_payload(payload)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -53,22 +53,32 @@ async def receive_fonnte_webhook(
         ) from exc
     except RuntimeError as exc:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
         ) from exc
     except Exception as exc:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to write to Google Sheets: {exc}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected webhook processing error: {exc}",
         ) from exc
 
-    updates = result.get("updates", {})
+    updates = result.get("sheets_log_updates") or {}
     return {
         "status": "ok",
         "saved": True,
-        "spreadsheet_id": settings.google_sheets_spreadsheet_id,
+        "conversation_id": result["conversation_id"],
+        "message_id": result["message_id"],
+        "client": result["client"],
+        "device": result["device"],
+        "analysis": result["analysis"],
+        "matched_products": result["matched_products"],
+        "reply_text": result["reply_text"],
+        "reply_sent": result["reply_sent"],
+        "send_error": result["send_error"],
+        "spreadsheet_id": settings.google_sheets_spreadsheet_id or None,
         "updated_range": updates.get("updatedRange"),
         "updated_rows": updates.get("updatedRows"),
+        "sheets_log_error": result["sheets_log_error"],
     }
 
 
