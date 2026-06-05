@@ -71,6 +71,7 @@ async def receive_fonnte_webhook(
         "client": result["client"],
         "device": result["device"],
         "analysis": result["analysis"],
+        "reply_attempted": result["reply_attempted"],
         "matched_products": result["matched_products"],
         "reply_text": result["reply_text"],
         "reply_sent": result["reply_sent"],
