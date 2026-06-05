@@ -11,6 +11,7 @@ from app.services.fonnte import FonnteClient
 from app.services.google_sheets import GoogleSheetsLogger, StockMatch
 
 logger = logging.getLogger(__name__)
+FALLBACK_REPLY = "Maaf saya belum bisa memproses permintaan anda"
 
 
 def _normalize_text(value: str) -> str:
@@ -61,7 +62,38 @@ class InventoryChatService:
         send_result: dict[str, Any] | None = None
         send_error: str | None = None
 
-        if analysis.should_lookup_stock and analysis.search_tokens:
+        if not analysis.should_lookup_stock:
+            reply_text = FALLBACK_REPLY
+            logger.info(
+                "Fallback reply prepared conversation_id=%s reason=no trigger keywords",
+                stored_message.conversation_id,
+            )
+            try:
+                send_result = self.fonnte.send_message(
+                    target_number=stored_message.sender_number,
+                    message=reply_text,
+                    auth_token=stored_message.device.outbound_token,
+                )
+                logger.info(
+                    "Fallback reply sent conversation_id=%s sender=%s",
+                    stored_message.conversation_id,
+                    stored_message.sender_number,
+                )
+                self.store.save_outgoing_message(
+                    conversation_id=stored_message.conversation_id,
+                    reply_text=reply_text,
+                    matched_keywords=analysis.trigger_keywords,
+                    matched_product_names=[],
+                    raw_payload=send_result,
+                )
+            except Exception as exc:
+                send_error = str(exc)
+                logger.warning(
+                    "Fallback reply send failed conversation_id=%s error=%s",
+                    stored_message.conversation_id,
+                    exc,
+                )
+        elif analysis.search_tokens:
             logger.info(
                 "Looking up stock for conversation_id=%s tokens=%s",
                 stored_message.conversation_id,
@@ -120,7 +152,7 @@ class InventoryChatService:
             logger.info(
                 "Reply skipped conversation_id=%s reason=%s",
                 stored_message.conversation_id,
-                "no trigger keywords" if not analysis.should_lookup_stock else "no search tokens",
+                "no search tokens",
             )
 
         self.store.update_incoming_message_analysis(

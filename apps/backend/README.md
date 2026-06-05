@@ -34,6 +34,7 @@ Webhook ini menerima chat masuk dari Fonnte, menyimpan percakapan ke SQLite, lal
 2. Menjadikan kata lain di pesan sebagai token pencarian.
 3. Mengquery Google Sheet tab `stock` pada kolom nama produk.
 4. Mengirim balasan otomatis ke WhatsApp jika produk ditemukan.
+5. Jika pesan tidak mengandung keyword, sistem membalas dengan pesan fallback.
 
 Format balasan:
 
