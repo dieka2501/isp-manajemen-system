@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 
@@ -7,6 +8,7 @@ from app.core.config import get_settings
 from app.services.chat_store import SQLiteChatStore
 
 settings = get_settings()
+logging.basicConfig(level=logging.INFO)
 
 
 @asynccontextmanager

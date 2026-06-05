@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -8,6 +9,9 @@ from app.core.config import Settings
 from app.services.chat_store import SQLiteChatStore
 from app.services.fonnte import FonnteClient
 from app.services.google_sheets import GoogleSheetsLogger, StockMatch
+
+logger = logging.getLogger(__name__)
+FALLBACK_REPLY = "Maaf saya belum bisa memproses permintaan anda"
 
 
 def _normalize_text(value: str) -> str:
@@ -31,33 +35,98 @@ class InventoryChatService:
     def handle_incoming_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         stored_message = self.store.save_incoming_message(payload)
         analysis = self._analyze_message(payload)
+        logger.info(
+            "Incoming chat saved conversation_id=%s device=%s sender=%s triggers=%s tokens=%s",
+            stored_message.conversation_id,
+            stored_message.device.device_identifier,
+            stored_message.sender_number,
+            ",".join(analysis.trigger_keywords) or "-",
+            ",".join(analysis.search_tokens) or "-",
+        )
 
         sheet_log_result: dict[str, Any] | None = None
         sheet_log_error: str | None = None
         if self.settings.google_sheets_spreadsheet_id:
             try:
                 sheet_log_result = self.sheets.append_whatsapp_message(payload)
+                logger.info(
+                    "Inbound payload appended to Google Sheets conversation_id=%s",
+                    stored_message.conversation_id,
+                )
             except Exception as exc:
                 sheet_log_error = str(exc)
+                logger.warning("Failed to append inbound payload to Google Sheets: %s", exc)
 
         matched_products: list[StockMatch] = []
         reply_text: str | None = None
         send_result: dict[str, Any] | None = None
         send_error: str | None = None
 
-        if analysis.should_lookup_stock and analysis.search_tokens:
+        if not analysis.should_lookup_stock:
+            reply_text = FALLBACK_REPLY
+            logger.info(
+                "Fallback reply prepared conversation_id=%s reason=no trigger keywords",
+                stored_message.conversation_id,
+            )
+            try:
+                send_result = self.fonnte.send_message(
+                    target_number=stored_message.sender_number,
+                    message=reply_text,
+                    auth_token=stored_message.device.outbound_token,
+                )
+                logger.info(
+                    "Fallback reply sent conversation_id=%s sender=%s",
+                    stored_message.conversation_id,
+                    stored_message.sender_number,
+                )
+                self.store.save_outgoing_message(
+                    conversation_id=stored_message.conversation_id,
+                    reply_text=reply_text,
+                    matched_keywords=analysis.trigger_keywords,
+                    matched_product_names=[],
+                    raw_payload=send_result,
+                )
+            except Exception as exc:
+                send_error = str(exc)
+                logger.warning(
+                    "Fallback reply send failed conversation_id=%s error=%s",
+                    stored_message.conversation_id,
+                    exc,
+                )
+        elif analysis.search_tokens:
+            logger.info(
+                "Looking up stock for conversation_id=%s tokens=%s",
+                stored_message.conversation_id,
+                ",".join(analysis.search_tokens),
+            )
             try:
                 matched_products = self.sheets.search_stock_products(analysis.search_tokens)
             except Exception as exc:
                 send_error = f"Stock lookup failed: {exc}"
+                logger.warning(
+                    "Stock lookup failed conversation_id=%s error=%s",
+                    stored_message.conversation_id,
+                    exc,
+                )
 
             if matched_products:
                 reply_text = self._compose_reply(matched_products)
+                logger.info(
+                    "Stock matched conversation_id=%s products=%s reply=%s",
+                    stored_message.conversation_id,
+                    ",".join(item.product_name for item in matched_products),
+                    reply_text,
+                )
                 try:
                     send_result = self.fonnte.send_message(
                         target_number=stored_message.sender_number,
                         message=reply_text,
                         auth_token=stored_message.device.outbound_token,
+                    )
+                    logger.info(
+                        "Reply sent conversation_id=%s sender=%s",
+                        stored_message.conversation_id,
+                        stored_message.sender_number,
                     )
                     self.store.save_outgoing_message(
                         conversation_id=stored_message.conversation_id,
@@ -68,6 +137,23 @@ class InventoryChatService:
                     )
                 except Exception as exc:
                     send_error = str(exc)
+                    logger.warning(
+                        "Reply send failed conversation_id=%s error=%s",
+                        stored_message.conversation_id,
+                        exc,
+                    )
+            else:
+                logger.info(
+                    "No stock match found conversation_id=%s tokens=%s",
+                    stored_message.conversation_id,
+                    ",".join(analysis.search_tokens),
+                )
+        else:
+            logger.info(
+                "Reply skipped conversation_id=%s reason=%s",
+                stored_message.conversation_id,
+                "no search tokens",
+            )
 
         self.store.update_incoming_message_analysis(
             message_id=stored_message.message_id,
@@ -95,6 +181,7 @@ class InventoryChatService:
                 "trigger_keywords": analysis.trigger_keywords,
                 "search_tokens": analysis.search_tokens,
             },
+            "reply_attempted": reply_text is not None,
             "matched_products": [item.as_dict() for item in matched_products],
             "reply_text": reply_text,
             "reply_sent": send_result is not None,
@@ -111,7 +198,7 @@ class InventoryChatService:
         trigger_keywords = [
             keyword
             for keyword in self.settings.chat_trigger_keywords
-            if keyword in words
+            if keyword in words or keyword in normalized
         ]
         search_tokens = [
             token
@@ -119,6 +206,12 @@ class InventoryChatService:
             if token not in self.settings.chat_trigger_keywords and len(token) > 1
         ]
         deduplicated_tokens = list(dict.fromkeys(search_tokens))
+        logger.info(
+            "Analyzed message normalized=%s triggers=%s tokens=%s",
+            normalized,
+            ",".join(trigger_keywords) or "-",
+            ",".join(deduplicated_tokens) or "-",
+        )
 
         return ChatAnalysis(
             should_lookup_stock=bool(trigger_keywords),
