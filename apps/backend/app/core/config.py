@@ -42,6 +42,7 @@ class Settings:
         "CHAT_TRIGGER_KEYWORDS",
         "diecast,hotwheel,stock,harga",
     )
+    sqlite_explorer_sources_json: str = os.getenv("SQLITE_EXPLORER_SOURCES_JSON", "")
 
 
 @lru_cache
