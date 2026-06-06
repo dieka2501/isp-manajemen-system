@@ -4,3 +4,4 @@
 - Updated backend runtime paths, docs, and Railway watch patterns to match the new layout.
 - Moved the example environment file to the repository root and updated dotenv loading to read from root `.env`.
 - Fixed the local reload helper so it enters `backend/` before launching uvicorn from the root project.
+- Added a legacy Railway config shim at `apps/backend/railway.toml` so deployments still pointing at the old service config path can initialize successfully while the canonical config remains in `backend/railway.toml`.

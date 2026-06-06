@@ -39,3 +39,7 @@ backend/scripts/
 backend/data/
 frontend/.gitkeep
 reload_local.sh
+
+# Legacy Railway compatibility shim only
+apps/backend/*
+!apps/backend/railway.toml
