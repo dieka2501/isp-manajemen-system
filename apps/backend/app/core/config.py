@@ -42,6 +42,13 @@ class Settings:
         "CHAT_TRIGGER_KEYWORDS",
         "diecast,hotwheel,stock,harga",
     )
+    sqlite_explorer_sources_json: str = os.getenv("SQLITE_EXPLORER_SOURCES_JSON", "")
+    dashboard_secret: str = os.getenv("DASHBOARD_SECRET", "")
+    dashboard_cookie_name: str = os.getenv(
+        "DASHBOARD_COOKIE_NAME",
+        "sqlite_dashboard_session",
+    )
+    dashboard_session_hours: int = int(os.getenv("DASHBOARD_SESSION_HOURS", "12"))
 
 
 @lru_cache

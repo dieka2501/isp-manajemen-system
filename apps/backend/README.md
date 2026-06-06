@@ -12,6 +12,22 @@ cp .env.example .env
 uvicorn app.main:app --reload
 ```
 
+Setelah server jalan, dashboard SQLite explorer tersedia di:
+
+```text
+http://127.0.0.1:8000/sqlexplorer
+```
+
+File SQLite yang bisa dipilih dari dashboard dapat dikonfigurasi lewat
+`SQLITE_EXPLORER_SOURCES_JSON`. Contoh:
+
+```bash
+SQLITE_EXPLORER_SOURCES_JSON=[{"name":"Chat Database","path":"data/chat.sqlite3"},{"name":"Temp DB","path":"/private/tmp/sample.sqlite3"}]
+```
+
+Kalau `DASHBOARD_SECRET` diisi, dashboard akan meminta login sebelum data
+SQLite bisa dibuka.
+
 ## Tes Kirim WhatsApp dari CLI
 
 Set token Fonnte di `.env`:
@@ -196,6 +212,7 @@ GOOGLE_SHEETS_WORKSHEET_NAME=incoming_whatsapp
 GOOGLE_SHEETS_STOCK_WORKSHEET_NAME=stock
 GOOGLE_SERVICE_ACCOUNT_JSON=
 CHAT_DATABASE_PATH=/app/data/chat.sqlite3
+DASHBOARD_SECRET=
 ```
 
 Setelah deploy berhasil, webhook Fonnte bisa diarahkan ke:
