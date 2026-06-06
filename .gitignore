@@ -38,3 +38,4 @@ out/
 backend/scripts/
 backend/data/
 frontend/.gitkeep
+reload_local.sh
