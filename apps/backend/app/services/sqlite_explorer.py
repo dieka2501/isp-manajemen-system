@@ -81,12 +81,15 @@ class SQLiteExplorerService:
         if query.lower().startswith(("insert", "update", "delete", "drop", "alter", "create", "replace", "vacuum", "attach", "detach")):
             raise ValueError("Only read-only queries are allowed.")
 
-        with self._connect(db_path) as conn:
-            cursor = conn.execute(query)
-            columns = [column[0] for column in cursor.description or []]
-            rows = cursor.fetchmany(limit)
-            result_rows = [self._stringify_row(row, columns) for row in rows]
-            truncated = cursor.fetchone() is not None
+        try:
+            with self._connect(db_path) as conn:
+                cursor = conn.execute(query)
+                columns = [column[0] for column in cursor.description or []]
+                rows = cursor.fetchmany(limit)
+                result_rows = [self._stringify_row(row, columns) for row in rows]
+                truncated = cursor.fetchone() is not None
+        except sqlite3.Error as exc:
+            raise ValueError(self._sqlite_error_message(exc)) from exc
 
         return {
             "columns": columns,
@@ -192,3 +195,7 @@ class SQLiteExplorerService:
     def _quote_identifier(self, value: str) -> str:
         escaped = value.replace('"', '""')
         return f'"{escaped}"'
+
+    def _sqlite_error_message(self, exc: sqlite3.Error) -> str:
+        message = str(exc).strip()
+        return message or "SQLite query failed."

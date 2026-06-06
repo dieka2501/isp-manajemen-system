@@ -128,7 +128,9 @@ body {
   font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
   font-size: 0.92rem;
   line-height: 1.65;
-  min-height: 14rem;
+  min-height: 10rem;
+  height: clamp(10rem, 26vh, 15rem);
+  max-height: clamp(10rem, 26vh, 15rem);
   resize: vertical;
 }
 
@@ -244,9 +246,21 @@ body {
   background: transparent;
 }
 
+.results-scroll {
+  max-height: clamp(18rem, 52vh, 34rem);
+  overflow: auto;
+  min-width: 0;
+}
+
+.results-table-container {
+  width: max-content;
+  min-width: 100%;
+}
+
 .data-table {
   border-collapse: separate;
   border-spacing: 0;
+  width: max-content;
   min-width: 100%;
   font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
   font-size: 0.88rem;
