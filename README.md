@@ -12,7 +12,6 @@ Repository ini digunakan sebagai fondasi pengembangan sistem manajemen ISP denga
 │   │   ├── core
 │   │   └── services
 │   ├── pyproject.toml
-│   ├── railway.toml
 │   └── requirements.txt
 ├── .env.example
 ├── frontend
@@ -21,6 +20,7 @@ Repository ini digunakan sebagai fondasi pengembangan sistem manajemen ISP denga
 │   └── styles.css
 ├── packages
 │   └── shared
+├── railway.toml
 └── README.md
 ```
 

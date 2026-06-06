@@ -189,19 +189,19 @@ Setup singkat:
 Project ini adalah monorepo, jadi untuk service backend di Railway gunakan konfigurasi berikut:
 
 1. Buat service baru dari repository ini.
-2. Set `Root Directory` ke `backend`.
-3. Set `Config File` ke `backend/railway.toml`.
+2. Set `Root Directory` ke root repository, atau kosongkan jika Railway otomatis memakai root.
+3. Set `Config File` ke `railway.toml`.
 4. Pastikan domain publik Railway sudah digenerate.
 5. Isi semua environment variable yang dibutuhkan di tab `Variables`.
 
 Catatan:
-Railway akan lebih stabil membaca dependency backend ini lewat `requirements.txt`, jadi file tersebut sudah disediakan berdampingan dengan `pyproject.toml`.
+Railway akan membaca `requirements.txt` dari root project, lalu file itu meneruskan instalasi ke `backend/requirements.txt`.
 
 Start command dan healthcheck sudah disiapkan di file `railway.toml`:
 
 ```toml
 [deploy]
-startCommand = "python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+startCommand = "bash start.sh"
 healthcheckPath = "/health"
 ```
 
