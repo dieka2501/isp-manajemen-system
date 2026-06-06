@@ -35,6 +35,7 @@ const el = {
   resultsEmptyState: document.getElementById("resultsEmptyState"),
   resultsTableContainer: document.getElementById("resultsTableContainer"),
   connectionStatus: document.getElementById("connectionStatus"),
+  logoutButton: document.getElementById("logoutButton"),
 };
 
 const STORAGE_KEYS = {
@@ -194,6 +195,33 @@ async function loginDashboard(event) {
     showError(error);
   } finally {
     el.loginButton.disabled = false;
+  }
+}
+
+async function logoutDashboard() {
+  try {
+    await api("/auth/logout", {
+      method: "POST",
+    });
+  } finally {
+    state.authenticated = false;
+    state.sources = [];
+    state.tables = [];
+    state.selectedTable = "";
+    state.sourcePath = "";
+    state.result = null;
+    el.sourceSelect.innerHTML = '<option value="">No configured sources</option>';
+    el.tablesList.innerHTML = "";
+    el.tableCount.textContent = "No database loaded.";
+    el.sourceExistsBadge.textContent = "Waiting";
+    el.sourceExistsBadge.className =
+      "rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300";
+    el.resultsEmptyState.classList.remove("hidden");
+    el.resultsTableContainer.classList.add("hidden");
+    el.resultsTableContainer.innerHTML = "";
+    setStatus("Ready", "idle");
+    setConnectionStatus("Signed out. Enter the dashboard password to continue.");
+    showAuthGate("You have been signed out. Enter the dashboard password to continue.");
   }
 }
 
@@ -425,6 +453,10 @@ async function runQuery() {
 function bindEvents() {
   el.loginForm.addEventListener("submit", (event) => {
     loginDashboard(event).catch(showError);
+  });
+
+  el.logoutButton.addEventListener("click", () => {
+    logoutDashboard().catch(showError);
   });
 
   el.sourceSelect.addEventListener("change", () => {
