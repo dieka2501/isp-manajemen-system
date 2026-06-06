@@ -18,6 +18,9 @@ Setelah server jalan, dashboard SQLite explorer tersedia di:
 http://127.0.0.1:8000/sqlexplorer
 ```
 
+Untuk sekarang, buka URL itu langsung tanpa lewat redirect dari `/` atau
+`/dashboard`.
+
 File SQLite yang bisa dipilih dari dashboard dapat dikonfigurasi lewat
 `SQLITE_EXPLORER_SOURCES_JSON`. Contoh:
 

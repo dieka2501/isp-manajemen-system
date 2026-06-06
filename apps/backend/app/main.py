@@ -5,7 +5,6 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
 
 from app.api.router import api_router
 from app.core.config import get_settings
@@ -43,8 +42,11 @@ def health_check() -> dict[str, str]:
 
 @app.get("/", include_in_schema=False)
 @app.get("/dashboard", include_in_schema=False)
-def dashboard_root() -> RedirectResponse:
-    return RedirectResponse(url="/sqlexplorer", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+def dashboard_root() -> None:
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Open /sqlexplorer directly to access the dashboard.",
+    )
 
 
 @app.get("/sqlexplorer", include_in_schema=False)
