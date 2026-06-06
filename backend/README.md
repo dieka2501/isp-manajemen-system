@@ -39,9 +39,10 @@ Set token Fonnte di `.env`:
 FONNTE_TOKEN=isi_token_anda
 ```
 
-Jalankan command berikut dari folder `apps/backend`:
+Jalankan command berikut dari folder `backend`:
 
 ```bash
+cd backend
 python -m app.cli.send_whatsapp -n 08123456789 -m "Halo dari CLI"
 ```
 
@@ -187,8 +188,8 @@ Setup singkat:
 Project ini adalah monorepo, jadi untuk service backend di Railway gunakan konfigurasi berikut:
 
 1. Buat service baru dari repository ini.
-2. Set `Root Directory` ke `apps/backend`.
-3. Set `Config File` ke `apps/backend/railway.toml`.
+2. Set `Root Directory` ke `backend`.
+3. Set `Config File` ke `backend/railway.toml`.
 4. Pastikan domain publik Railway sudah digenerate.
 5. Isi semua environment variable yang dibutuhkan di tab `Variables`.
 

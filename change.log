@@ -1,0 +1,4 @@
+2026-06-06
+- Restructured the project so the repository root contains `backend/` and `frontend/`.
+- Moved the SQLite explorer frontend back to the top-level `frontend/` folder.
+- Updated backend runtime paths, docs, and Railway watch patterns to match the new layout.

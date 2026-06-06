@@ -12,7 +12,7 @@ from app.services.chat_store import SQLiteChatStore
 
 settings = get_settings()
 logging.basicConfig(level=logging.INFO)
-FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
+FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 
 
 @asynccontextmanager

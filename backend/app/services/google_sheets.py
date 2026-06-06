@@ -40,7 +40,7 @@ def _import_google_clients() -> tuple[Any, Any, Any]:
         from googleapiclient.errors import HttpError
     except ImportError as exc:
         raise RuntimeError(
-            "Google Sheets dependencies are not installed. Run `pip install -e .` in apps/backend."
+            "Google Sheets dependencies are not installed. Run `pip install -e .` in backend."
         ) from exc
 
     return service_account, build, HttpError

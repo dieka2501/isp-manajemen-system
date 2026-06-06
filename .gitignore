@@ -8,10 +8,12 @@
 # Logs
 *.log
 logs/
+!change.log
 
 # Environment
 .env
 .env.*
+!backend/.env.example
 
 # Python
 __pycache__/
@@ -33,4 +35,6 @@ build/
 out/
 
 # Local backend helper scripts
-apps/backend/scripts/
+backend/scripts/
+backend/data/
+frontend/.gitkeep

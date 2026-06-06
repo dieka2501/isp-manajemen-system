@@ -21,6 +21,3 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 include = ["app*"]
-
-[tool.setuptools.package-data]
-app = ["frontend/*.html", "frontend/*.js", "frontend/*.css"]
