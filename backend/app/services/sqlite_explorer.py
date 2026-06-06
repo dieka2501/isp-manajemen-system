@@ -114,8 +114,16 @@ class SQLiteExplorerService:
         except json.JSONDecodeError as exc:
             raise ValueError("SQLITE_EXPLORER_SOURCES_JSON must be valid JSON.") from exc
 
-        if not isinstance(parsed, list):
-            raise ValueError("SQLITE_EXPLORER_SOURCES_JSON must be a JSON array.")
+        if isinstance(parsed, str):
+            try:
+                parsed = json.loads(parsed)
+            except json.JSONDecodeError as exc:
+                raise ValueError("SQLITE_EXPLORER_SOURCES_JSON must be valid JSON.") from exc
+
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        elif not isinstance(parsed, list):
+            raise ValueError("SQLITE_EXPLORER_SOURCES_JSON must be a JSON array or object.")
 
         sources: list[dict[str, Any]] = []
         for item in parsed:

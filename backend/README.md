@@ -218,7 +218,13 @@ GOOGLE_SHEETS_STOCK_WORKSHEET_NAME=stock
 GOOGLE_SERVICE_ACCOUNT_JSON=
 CHAT_DATABASE_PATH=/app/data/chat.sqlite3
 DASHBOARD_SECRET=
+SQLITE_EXPLORER_SOURCES_JSON=[{"name":"Chat Database","path":"/app/data/chat.sqlite3"}]
 ```
+
+Gunakan `/app/data/chat.sqlite3` jika Railway volume dimount ke `/app/data`.
+Jangan gunakan `/backend/data/chat.sqlite3`, karena itu menunjuk ke folder absolut
+di root container yang tidak dibuat oleh aplikasi. Jika tidak memakai volume,
+path sementara yang sesuai layout container adalah `/app/backend/data/chat.sqlite3`.
 
 Setelah deploy berhasil, webhook Fonnte bisa diarahkan ke:
 
