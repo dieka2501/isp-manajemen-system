@@ -5,3 +5,6 @@
 - Moved the example environment file to the repository root and updated dotenv loading to read from root `.env`.
 - Fixed the local reload helper so it enters `backend/` before launching uvicorn from the root project.
 - Added a legacy Railway config shim at `apps/backend/railway.toml` so deployments still pointing at the old service config path can initialize successfully while the canonical config remains in `backend/railway.toml`.
+- Added root-level Railway bridge files (`requirements.txt` and `start.sh`) so Railpack can detect Python from the repository root and start the backend through the new root layout.
+- Updated Railway start commands to call `bash start.sh` instead of depending on a backend-local entrypoint.
+- Expanded Railway watch patterns to include the root deployment bridge files so changes to `requirements.txt` and `start.sh` trigger rebuilds too.
