@@ -11,10 +11,10 @@ Repository ini digunakan sebagai fondasi pengembangan sistem manajemen ISP denga
 │   │   ├── api
 │   │   ├── core
 │   │   └── services
-│   ├── .env.example
 │   ├── pyproject.toml
 │   ├── railway.toml
 │   └── requirements.txt
+├── .env.example
 ├── frontend
 │   ├── app.js
 │   ├── index.html
@@ -49,6 +49,7 @@ Placeholder untuk shared schema, utilitas, atau kontrak data yang nantinya dipak
 ## Menjalankan Backend
 
 ```bash
+cp .env.example .env
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate

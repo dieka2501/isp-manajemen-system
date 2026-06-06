@@ -2,3 +2,4 @@
 - Restructured the project so the repository root contains `backend/` and `frontend/`.
 - Moved the SQLite explorer frontend back to the top-level `frontend/` folder.
 - Updated backend runtime paths, docs, and Railway watch patterns to match the new layout.
+- Moved the example environment file to the repository root and updated dotenv loading to read from root `.env`.

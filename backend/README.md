@@ -5,10 +5,12 @@ Backend module awal untuk ISP Manajemen System menggunakan FastAPI.
 ## Menjalankan
 
 ```bash
+cd ..
+cp .env.example .env
+cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
-cp .env.example .env
 uvicorn app.main:app --reload
 ```
 
@@ -42,7 +44,6 @@ FONNTE_TOKEN=isi_token_anda
 Jalankan command berikut dari folder `backend`:
 
 ```bash
-cd backend
 python -m app.cli.send_whatsapp -n 08123456789 -m "Halo dari CLI"
 ```
 
