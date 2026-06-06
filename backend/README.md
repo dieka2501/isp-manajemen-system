@@ -195,7 +195,7 @@ Project ini adalah monorepo, jadi untuk service backend di Railway gunakan konfi
 5. Isi semua environment variable yang dibutuhkan di tab `Variables`.
 
 Catatan:
-Railway akan membaca `requirements.txt` dari root project, lalu file itu meneruskan instalasi ke `backend/requirements.txt`.
+Railway membaca `requirements.txt` dari root project saat membuat layer dependency. File root itu sengaja berisi daftar dependency langsung karena pada tahap install awal Railpack belum selalu menyalin folder `backend/`.
 
 Start command dan healthcheck sudah disiapkan di file `railway.toml`:
 
