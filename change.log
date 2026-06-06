@@ -9,3 +9,4 @@
 - Updated Railway start commands to call `bash start.sh` instead of depending on a backend-local entrypoint.
 - Expanded Railway watch patterns to include the root deployment bridge files so changes to `requirements.txt` and `start.sh` trigger rebuilds too.
 - Added a root-level `railway.toml` and updated deploy docs so Railway can target the repository root cleanly with the new layout.
+- Changed root `requirements.txt` to list backend dependencies directly because Railpack installs it before nested project files such as `backend/requirements.txt` are available in the build layer.
