@@ -6,9 +6,17 @@ const state = {
   query: `SELECT name, type FROM sqlite_master WHERE type IN ("table", "view") AND name NOT LIKE "sqlite_%" ORDER BY name;`,
   result: null,
   loading: false,
+  authenticated: false,
+  secretConfigured: false,
 };
 
 const el = {
+  authGate: document.getElementById("authGate"),
+  dashboardShell: document.getElementById("dashboardShell"),
+  loginForm: document.getElementById("loginForm"),
+  passwordInput: document.getElementById("passwordInput"),
+  loginMessage: document.getElementById("loginMessage"),
+  loginButton: document.getElementById("loginButton"),
   sourceSelect: document.getElementById("sourceSelect"),
   pathInput: document.getElementById("pathInput"),
   loadButton: document.getElementById("loadButton"),
@@ -91,6 +99,7 @@ function restorePreferences() {
 
 async function api(path, options = {}) {
   const response = await fetch(`/api/v1/sqlite${path}`, {
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
       ...(options.headers || {}),
@@ -99,9 +108,26 @@ async function api(path, options = {}) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith("/auth/")) {
+      showAuthGate("Your session expired or login is required. Please sign in again.");
+    }
     throw new Error(data.detail || `Request failed with status ${response.status}`);
   }
   return data;
+}
+
+function showAuthGate(message) {
+  state.authenticated = false;
+  el.authGate.classList.remove("hidden");
+  el.dashboardShell.classList.add("hidden");
+  if (message) {
+    el.loginMessage.textContent = message;
+  }
+}
+
+function showDashboard() {
+  el.authGate.classList.add("hidden");
+  el.dashboardShell.classList.remove("hidden");
 }
 
 function currentPath() {
@@ -111,6 +137,64 @@ function currentPath() {
 function setCurrentSource(path) {
   el.pathInput.value = path;
   persistPreferences();
+}
+
+async function checkAuth() {
+  el.loginMessage.textContent = "Checking login status...";
+  const data = await api("/auth/status");
+  state.authenticated = Boolean(data.authenticated);
+  state.secretConfigured = Boolean(data.secret_configured);
+
+  if (state.authenticated) {
+    showDashboard();
+    if (state.secretConfigured) {
+      setConnectionStatus("Dashboard unlocked.", "success");
+    } else {
+      setConnectionStatus("Dashboard login is disabled in this environment.", "success");
+    }
+    return true;
+  }
+
+  showAuthGate("Enter the dashboard password to continue.");
+  return false;
+}
+
+async function loginDashboard(event) {
+  event.preventDefault();
+  const password = el.passwordInput.value.trim();
+  if (!password) {
+    el.loginMessage.textContent = "Please enter the dashboard password.";
+    return;
+  }
+
+  el.loginButton.disabled = true;
+  el.loginMessage.textContent = "Signing in...";
+
+  try {
+    const data = await api("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    });
+    state.authenticated = Boolean(data.authenticated);
+    state.secretConfigured = Boolean(data.secret_configured);
+    if (state.authenticated) {
+      showDashboard();
+      el.passwordInput.value = "";
+      setConnectionStatus("Dashboard unlocked.", "success");
+      await loadSources();
+      if (currentPath()) {
+        await loadTables({ autoRunFirstTable: true });
+      }
+      return;
+    }
+
+    el.loginMessage.textContent = "Login failed. Please try again.";
+  } catch (error) {
+    el.loginMessage.textContent = error.message || String(error);
+    showError(error);
+  } finally {
+    el.loginButton.disabled = false;
+  }
 }
 
 function renderSources() {
@@ -339,6 +423,10 @@ async function runQuery() {
 }
 
 function bindEvents() {
+  el.loginForm.addEventListener("submit", (event) => {
+    loginDashboard(event).catch(showError);
+  });
+
   el.sourceSelect.addEventListener("change", () => {
     applySelectedSourceFromDropdown();
     loadTables({ autoRunFirstTable: true }).catch(showError);
@@ -399,6 +487,10 @@ async function bootstrap() {
   restorePreferences();
   bindEvents();
   try {
+    const authenticated = await checkAuth();
+    if (!authenticated) {
+      return;
+    }
     await loadSources();
     if (currentPath()) {
       el.pathInput.value = currentPath();

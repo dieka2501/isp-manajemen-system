@@ -15,14 +15,35 @@
       rel="stylesheet"
     />
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="/dashboard-assets/styles.css" />
+    <link rel="stylesheet" href="/sqlexplorer-assets/styles.css" />
   </head>
   <body>
-    <div class="orb orb-a"></div>
-    <div class="orb orb-b"></div>
-    <div class="orb orb-c"></div>
+    <div id="authGate" class="auth-gate hidden">
+      <div class="auth-card glass-panel">
+        <div class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.35em] text-cyan-200/80">
+          SQL Explorer Login
+        </div>
+        <h1 class="mt-4 text-3xl font-semibold tracking-tight text-white">Enter dashboard password</h1>
+        <p class="mt-2 text-sm leading-6 text-slate-300">
+          Use the `DASHBOARD_SECRET` value from the backend environment to unlock the SQLite explorer.
+        </p>
+        <form id="loginForm" class="mt-6 space-y-4">
+          <label class="space-y-2 block">
+            <span class="section-label">Dashboard password</span>
+            <input id="passwordInput" class="control-input" type="password" autocomplete="current-password" placeholder="Enter dashboard password" />
+          </label>
+          <button id="loginButton" class="action-button action-primary w-full" type="submit">Unlock dashboard</button>
+        </form>
+        <div id="loginMessage" class="mt-4 text-sm text-slate-400">Checking login status...</div>
+      </div>
+    </div>
 
-    <div class="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div id="dashboardShell" class="hidden">
+      <div class="orb orb-a"></div>
+      <div class="orb orb-b"></div>
+      <div class="orb orb-c"></div>
+
+      <div class="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <header class="glass-panel hero-panel flex flex-col gap-5 p-6 lg:flex-row lg:items-end lg:justify-between">
         <div class="space-y-3">
           <div class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.35em] text-cyan-200/80">
@@ -162,8 +183,9 @@
           </div>
         </section>
       </main>
+      </div>
     </div>
 
-    <script src="/dashboard-assets/app.js" defer></script>
+    <script src="/sqlexplorer-assets/app.js" defer></script>
   </body>
 </html>

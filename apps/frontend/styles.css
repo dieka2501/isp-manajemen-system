@@ -57,6 +57,22 @@ body {
   opacity: 0.55;
 }
 
+.hidden {
+  display: none !important;
+}
+
+.auth-gate {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
+.auth-card {
+  width: min(100%, 520px);
+  padding: 2rem;
+}
+
 .orb-a {
   top: 4rem;
   left: -2rem;
