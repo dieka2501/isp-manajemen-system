@@ -8,10 +8,12 @@
 # Logs
 *.log
 logs/
+!change.log
 
 # Environment
 .env
 .env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -20,6 +22,7 @@ __pycache__/
 .mypy_cache/
 .venv/
 venv/
+*.egg-info/
 
 # Node.js
 node_modules/
@@ -30,3 +33,9 @@ coverage/
 # Build
 build/
 out/
+
+# Local backend helper scripts
+backend/scripts/
+backend/data/
+frontend/.gitkeep
+reload_local.sh

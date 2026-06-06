@@ -6,14 +6,19 @@ Repository ini digunakan sebagai fondasi pengembangan sistem manajemen ISP denga
 
 ```text
 .
-├── apps
-│   ├── backend
-│       ├── app
-│       │   ├── api
-│       │   └── core
-│       ├── .env.example
-│       └── pyproject.toml
-│   └── frontend
+├── backend
+│   ├── app
+│   │   ├── api
+│   │   ├── core
+│   │   └── services
+│   ├── pyproject.toml
+│   ├── railway.toml
+│   └── requirements.txt
+├── .env.example
+├── frontend
+│   ├── app.js
+│   ├── index.html
+│   └── styles.css
 ├── packages
 │   └── shared
 └── README.md
@@ -21,7 +26,7 @@ Repository ini digunakan sebagai fondasi pengembangan sistem manajemen ISP denga
 
 ## Modul Awal
 
-### `apps/backend`
+### `backend`
 
 Contoh backend pertama menggunakan Python dan FastAPI.
 
@@ -33,9 +38,9 @@ Fitur awal:
 - webhook Fonnte untuk menyimpan chat masuk ke Google Sheets
 - siap dikembangkan untuk modul autentikasi, pelanggan, billing, dan notifikasi
 
-### `apps/frontend`
+### `frontend`
 
-Placeholder untuk frontend utama, misalnya dashboard admin berbasis React atau Next.js.
+Dashboard SQLite explorer yang disajikan oleh backend dari folder `frontend` di root project.
 
 ### `packages/shared`
 
@@ -44,7 +49,8 @@ Placeholder untuk shared schema, utilitas, atau kontrak data yang nantinya dipak
 ## Menjalankan Backend
 
 ```bash
-cd apps/backend
+cp .env.example .env
+cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
@@ -57,7 +63,7 @@ Backend akan berjalan di `http://127.0.0.1:8000`.
 Untuk tes kirim WhatsApp via CLI:
 
 ```bash
-cd apps/backend
+cd backend
 python -m app.cli.send_whatsapp -n 08123456789 -m "Halo dari CLI"
 ```
 
