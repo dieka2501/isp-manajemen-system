@@ -10,10 +10,10 @@ Repository ini digunakan sebagai fondasi pengembangan sistem manajemen ISP denga
 │   ├── backend
 │       ├── app
 │       │   ├── api
-│       │   └── core
+│       │   ├── core
+│       │   └── frontend
 │       ├── .env.example
 │       └── pyproject.toml
-│   └── frontend
 ├── packages
 │   └── shared
 └── README.md
@@ -33,9 +33,9 @@ Fitur awal:
 - webhook Fonnte untuk menyimpan chat masuk ke Google Sheets
 - siap dikembangkan untuk modul autentikasi, pelanggan, billing, dan notifikasi
 
-### `apps/frontend`
+### `apps/backend/app/frontend`
 
-Placeholder untuk frontend utama, misalnya dashboard admin berbasis React atau Next.js.
+Dashboard SQLite explorer yang dibundle bersama backend agar tetap ikut terdeploy di Railway.
 
 ### `packages/shared`
 
