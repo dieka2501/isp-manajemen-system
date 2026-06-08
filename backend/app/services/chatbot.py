@@ -19,7 +19,47 @@ class ISPCSChatService:
 
     def handle_incoming_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         stored_message = self.store.save_incoming_message(payload)
-        message_text = self._extract_message_text(payload)
+        message_text = stored_message.message_text.strip()
+        if not message_text:
+            logger.info(
+                "Incoming chat ignored conversation_id=%s device=%s sender=%s reason=empty message_text",
+                stored_message.conversation_id,
+                stored_message.device.device_identifier,
+                stored_message.sender_number,
+            )
+            self.store.update_incoming_message_analysis(
+                message_id=stored_message.message_id,
+                matched_keywords=[],
+                matched_product_names=[],
+                reply_text=None,
+            )
+            return {
+                "conversation_id": stored_message.conversation_id,
+                "message_id": stored_message.message_id,
+                "client": {
+                    "id": stored_message.device.client_id,
+                    "name": stored_message.device.client_name,
+                    "token": stored_message.device.client_token,
+                    "account_slug": stored_message.device.account_slug,
+                },
+                "device": {
+                    "id": stored_message.device.device_id,
+                    "identifier": stored_message.device.device_identifier,
+                    "name": stored_message.device.device_name,
+                },
+                "analysis": {
+                    "skipped": True,
+                    "skip_reason": "empty_message_text",
+                },
+                "reply_attempted": False,
+                "matched_products": [],
+                "reply_text": None,
+                "reply_sent": False,
+                "send_result": None,
+                "send_error": None,
+                "skip_reason": "empty_message_text",
+            }
+
         agent_response = ISPCSAgent(self.store.get_intent_agent_catalog()).answer(message_text)
         logger.info(
             "Incoming chat saved conversation_id=%s device=%s sender=%s intent=%s confidence=%s entities=%s",
@@ -89,11 +129,5 @@ class ISPCSChatService:
             "reply_sent": send_result is not None,
             "send_result": send_result,
             "send_error": send_error,
+            "skip_reason": None,
         }
-
-    def _extract_message_text(self, payload: dict[str, Any]) -> str:
-        for key in ("message", "text", "body"):
-            value = payload.get(key)
-            if value:
-                return str(value)
-        return ""

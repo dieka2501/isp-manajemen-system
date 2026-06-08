@@ -57,6 +57,7 @@ class StoredIncomingMessage:
     message_id: int
     sender_number: str
     sender_name: str | None
+    message_text: str
     device: DeviceContext
 
 
@@ -577,6 +578,7 @@ class SQLiteChatStore:
             message_id=int(cursor.lastrowid),
             sender_number=sender_number,
             sender_name=sender_name,
+            message_text=message_text,
             device=device,
         )
 
