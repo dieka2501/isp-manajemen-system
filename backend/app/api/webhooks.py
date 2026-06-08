@@ -75,6 +75,7 @@ async def receive_fonnte_webhook(
         "reply_text": result["reply_text"],
         "reply_sent": result["reply_sent"],
         "send_error": result["send_error"],
+        "skip_reason": result.get("skip_reason"),
     }
 
 

@@ -8,6 +8,7 @@
 - Added `python -m app.cli.init_sqlite` to initialize and seed SQLite without starting the web server.
 - Added a SQLite-backed ISP CS/Sales agent that classifies intent, extracts entities, detects missing slots, and composes customer replies.
 - Added `/api/v1/chat/agent/preview` to test agent replies without sending WhatsApp messages.
+- Added validation to skip chatbot replies when incoming webhook payloads have empty or null `message_text`.
 
 2026-06-06
 - Restructured the project so the repository root contains `backend/` and `frontend/`.
