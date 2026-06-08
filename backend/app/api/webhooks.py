@@ -62,7 +62,6 @@ async def receive_fonnte_webhook(
             detail=f"Unexpected webhook processing error: {exc}",
         ) from exc
 
-    updates = result.get("sheets_log_updates") or {}
     return {
         "status": "ok",
         "saved": True,
@@ -76,10 +75,6 @@ async def receive_fonnte_webhook(
         "reply_text": result["reply_text"],
         "reply_sent": result["reply_sent"],
         "send_error": result["send_error"],
-        "spreadsheet_id": settings.google_sheets_spreadsheet_id or None,
-        "updated_range": updates.get("updatedRange"),
-        "updated_rows": updates.get("updatedRows"),
-        "sheets_log_error": result["sheets_log_error"],
     }
 
 

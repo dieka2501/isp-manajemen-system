@@ -6,9 +6,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.config import Settings
-from app.services.chat_store import SQLiteChatStore
+from app.services.chat_store import SQLiteChatStore, StockMatch
 from app.services.fonnte import FonnteClient
-from app.services.google_sheets import GoogleSheetsLogger, StockMatch
 
 logger = logging.getLogger(__name__)
 FALLBACK_REPLY = "Maaf saya belum bisa memproses permintaan anda"
@@ -29,7 +28,6 @@ class InventoryChatService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.store = SQLiteChatStore(settings)
-        self.sheets = GoogleSheetsLogger(settings)
         self.fonnte = FonnteClient(settings)
 
     def handle_incoming_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -43,19 +41,6 @@ class InventoryChatService:
             ",".join(analysis.trigger_keywords) or "-",
             ",".join(analysis.search_tokens) or "-",
         )
-
-        sheet_log_result: dict[str, Any] | None = None
-        sheet_log_error: str | None = None
-        if self.settings.google_sheets_spreadsheet_id:
-            try:
-                sheet_log_result = self.sheets.append_whatsapp_message(payload)
-                logger.info(
-                    "Inbound payload appended to Google Sheets conversation_id=%s",
-                    stored_message.conversation_id,
-                )
-            except Exception as exc:
-                sheet_log_error = str(exc)
-                logger.warning("Failed to append inbound payload to Google Sheets: %s", exc)
 
         matched_products: list[StockMatch] = []
         reply_text: str | None = None
@@ -100,7 +85,10 @@ class InventoryChatService:
                 ",".join(analysis.search_tokens),
             )
             try:
-                matched_products = self.sheets.search_stock_products(analysis.search_tokens)
+                matched_products = self.store.search_stock_products(
+                    client_id=stored_message.device.client_id,
+                    query_tokens=analysis.search_tokens,
+                )
             except Exception as exc:
                 send_error = f"Stock lookup failed: {exc}"
                 logger.warning(
@@ -187,8 +175,6 @@ class InventoryChatService:
             "reply_sent": send_result is not None,
             "send_result": send_result,
             "send_error": send_error,
-            "sheets_log_error": sheet_log_error,
-            "sheets_log_updates": sheet_log_result.get("updates") if sheet_log_result else None,
         }
 
     def _analyze_message(self, payload: dict[str, Any]) -> ChatAnalysis:

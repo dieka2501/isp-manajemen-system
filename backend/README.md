@@ -47,13 +47,13 @@ Jalankan command berikut dari folder `backend`:
 python -m app.cli.send_whatsapp -n 08123456789 -m "Halo dari CLI"
 ```
 
-## Sistem Chat Fonnte + SQLite + Google Sheets
+## Sistem Chat Fonnte + SQLite
 
 Webhook ini menerima chat masuk dari Fonnte, menyimpan percakapan ke SQLite, lalu:
 
 1. Mencari trigger keyword: `diecast`, `hotwheel`, `stock`, `harga`.
 2. Menjadikan kata lain di pesan sebagai token pencarian.
-3. Mengquery Google Sheet tab `stock` pada kolom nama produk.
+3. Mengquery tabel SQLite `stock_products` pada kolom nama produk milik client.
 4. Mengirim balasan otomatis ke WhatsApp jika produk ditemukan.
 5. Jika pesan tidak mengandung keyword, sistem membalas dengan pesan fallback.
 
@@ -62,8 +62,6 @@ Format balasan:
 ```text
 Untuk {Nama Product} {type} mempunyai stock {Stock} buah.
 ```
-
-Percakapan juga tetap bisa dicatat ke worksheet log inbound bila spreadsheet diisi.
 
 Endpoint:
 
@@ -82,28 +80,8 @@ Environment variable yang perlu diisi:
 
 ```bash
 FONNTE_WEBHOOK_SECRET=rahasia-anda
-GOOGLE_SERVICE_ACCOUNT_FILE=/absolute/path/credentials.json
-GOOGLE_SHEETS_SPREADSHEET_ID=spreadsheet_id_anda
-GOOGLE_SHEETS_WORKSHEET_NAME=incoming_whatsapp
-GOOGLE_SHEETS_STOCK_WORKSHEET_NAME=stock
 CHAT_DATABASE_PATH=/absolute/path/chat.sqlite3
 ```
-
-Alternatifnya, Anda bisa isi `GOOGLE_SERVICE_ACCOUNT_JSON` dengan isi JSON service account.
-Jika worksheet log inbound belum ada, backend akan membuat tab tersebut otomatis.
-
-Kolom yang otomatis ditulis:
-- `received_at`
-- `device`
-- `sender`
-- `name`
-- `message`
-- `member`
-- `url`
-- `filename`
-- `extension`
-- `location`
-- `raw_payload`
 
 Database SQLite akan otomatis dibuat saat app start dan menyimpan:
 - `accounts`
@@ -111,6 +89,7 @@ Database SQLite akan otomatis dibuat saat app start dan menyimpan:
 - `devices`
 - `conversations`
 - `messages`
+- `stock_products`
 
 Desain ini mendukung:
 - multi account
@@ -135,6 +114,8 @@ POST /api/v1/chat/accounts
 GET  /api/v1/chat/clients
 POST /api/v1/chat/clients
 POST /api/v1/chat/devices
+GET  /api/v1/chat/stock-products
+POST /api/v1/chat/stock-products
 GET  /api/v1/chat/conversations
 GET  /api/v1/chat/conversations/{conversation_id}/messages
 ```
@@ -144,8 +125,9 @@ Contoh alur setup:
 1. Buat account.
 2. Buat client di account tersebut dan simpan `api_token` client.
 3. Register device Fonnte ke client dengan `device_identifier` dan `outbound_token`.
-4. Arahkan webhook Fonnte ke endpoint backend.
-5. Saat chat masuk berisi keyword terkait stok hotwheel, sistem akan mencari ke tab `stock` dan membalas otomatis.
+4. Tambahkan data produk/stok untuk client tersebut ke SQLite.
+5. Arahkan webhook Fonnte ke endpoint backend.
+6. Saat chat masuk berisi keyword terkait stok hotwheel, sistem akan mencari ke tabel `stock_products` dan membalas otomatis.
 
 Contoh membuat account:
 
@@ -176,13 +158,24 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat/devices \
   }'
 ```
 
+Contoh menambahkan atau memperbarui stok produk:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/chat/stock-products \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_token":"isi_token_dari_endpoint_client",
+    "product_name":"Hotwheel Civic EG",
+    "product_type":"regular",
+    "stock":12
+  }'
+```
+
 Setup singkat:
 
-1. Enable Google Sheets API di project Google Cloud.
-2. Buat service account key JSON.
-3. Share spreadsheet ke email service account dengan akses editor.
-4. Jalankan backend dengan `uvicorn app.main:app --reload`.
-5. Di dashboard Fonnte, isi webhook URL ke endpoint di atas dan aktifkan auto read.
+1. Jalankan backend dengan `uvicorn app.main:app --reload`.
+2. Buat account, client, device, dan data stok lewat endpoint API.
+3. Di dashboard Fonnte, isi webhook URL ke endpoint di atas dan aktifkan auto read.
 
 ## Deploy ke Railway
 
@@ -212,10 +205,6 @@ APP_ENV=production
 APP_DEBUG=false
 FONNTE_TOKEN=
 FONNTE_WEBHOOK_SECRET=
-GOOGLE_SHEETS_SPREADSHEET_ID=
-GOOGLE_SHEETS_WORKSHEET_NAME=incoming_whatsapp
-GOOGLE_SHEETS_STOCK_WORKSHEET_NAME=stock
-GOOGLE_SERVICE_ACCOUNT_JSON=
 CHAT_DATABASE_PATH=/app/data/chat.sqlite3
 DASHBOARD_SECRET=
 SQLITE_EXPLORER_SOURCES_JSON=[{"name":"Chat Database","path":"/app/data/chat.sqlite3"}]

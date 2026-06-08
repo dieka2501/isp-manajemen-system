@@ -28,6 +28,15 @@ class DeviceRegisterRequest(BaseModel):
     client_token: str | None = None
 
 
+class StockProductUpsertRequest(BaseModel):
+    client_id: int | None = None
+    client_token: str | None = None
+    product_name: str = Field(min_length=1)
+    product_type: str | None = None
+    stock: int = Field(ge=0)
+    metadata: dict[str, object] | None = None
+
+
 def _store() -> SQLiteChatStore:
     return SQLiteChatStore(get_settings())
 
@@ -84,6 +93,47 @@ def register_device(payload: DeviceRegisterRequest) -> dict[str, object]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     return {"item": device}
+
+
+@chat_router.get("/stock-products")
+def list_stock_products(
+    client_id: int | None = Query(default=None),
+    client_token: str | None = Query(default=None),
+    query: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict[str, object]:
+    try:
+        items = _store().list_stock_products(
+            client_id=client_id,
+            client_token=client_token,
+            query=query,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return {"items": items}
+
+
+@chat_router.post("/stock-products", status_code=status.HTTP_201_CREATED)
+def upsert_stock_product(payload: StockProductUpsertRequest) -> dict[str, object]:
+    if payload.client_id is None and payload.client_token is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Provide `client_id` or `client_token` to save stock product.",
+        )
+
+    try:
+        item = _store().upsert_stock_product(
+            client_id=payload.client_id,
+            client_token=payload.client_token,
+            product_name=payload.product_name,
+            product_type=payload.product_type,
+            stock=payload.stock,
+            metadata=payload.metadata,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return {"item": item}
 
 
 @chat_router.get("/conversations")

@@ -27,11 +27,6 @@ class Settings:
     fonnte_token: str = os.getenv("FONNTE_TOKEN", "")
     fonnte_default_country_code: str = os.getenv("FONNTE_DEFAULT_COUNTRY_CODE", "62")
     fonnte_webhook_secret: str = os.getenv("FONNTE_WEBHOOK_SECRET", "")
-    google_service_account_file: str = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "")
-    google_service_account_json: str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
-    google_sheets_spreadsheet_id: str = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID", "")
-    google_sheets_worksheet_name: str = os.getenv("GOOGLE_SHEETS_WORKSHEET_NAME", "incoming_whatsapp")
-    google_sheets_stock_worksheet_name: str = os.getenv("GOOGLE_SHEETS_STOCK_WORKSHEET_NAME", "stock")
     chat_database_path: str = os.getenv(
         "CHAT_DATABASE_PATH",
         str(BASE_DIR / "data" / "chat.sqlite3"),

@@ -21,6 +21,12 @@ def _slugify(value: str) -> str:
     return slug or "account"
 
 
+def _normalize_search_text(value: str) -> str:
+    return " ".join(
+        "".join(char.lower() if char.isalnum() else " " for char in value).split()
+    )
+
+
 @dataclass(frozen=True)
 class DeviceContext:
     account_id: int
@@ -42,6 +48,22 @@ class StoredIncomingMessage:
     sender_number: str
     sender_name: str | None
     device: DeviceContext
+
+
+@dataclass(frozen=True)
+class StockMatch:
+    product_id: int
+    product_name: str
+    product_type: str
+    stock: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "product_id": self.product_id,
+            "product_name": self.product_name,
+            "product_type": self.product_type,
+            "stock": self.stock,
+        }
 
 
 class SQLiteChatStore:
@@ -113,11 +135,28 @@ class SQLiteChatStore:
                     FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS stock_products (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    product_name TEXT NOT NULL,
+                    product_type TEXT,
+                    stock INTEGER NOT NULL DEFAULT 0,
+                    metadata TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    UNIQUE (client_id, product_name, product_type)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_clients_account_id ON clients (account_id);
                 CREATE INDEX IF NOT EXISTS idx_devices_client_id ON devices (client_id);
                 CREATE INDEX IF NOT EXISTS idx_conversations_client_id ON conversations (client_id);
                 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages (conversation_id);
                 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages (created_at);
+                CREATE INDEX IF NOT EXISTS idx_stock_products_client_id
+                    ON stock_products (client_id);
+                CREATE INDEX IF NOT EXISTS idx_stock_products_name
+                    ON stock_products (product_name);
                 """
             )
 
@@ -449,6 +488,207 @@ class SQLiteChatStore:
                     message_id,
                 ),
             )
+
+    def list_stock_products(
+        self,
+        *,
+        client_id: int | None = None,
+        client_token: str | None = None,
+        query: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 500))
+        filters = []
+        params: list[Any] = []
+
+        with self._connect() as conn:
+            resolved_client = self._resolve_client(
+                conn,
+                client_id=client_id,
+                client_token=client_token,
+            )
+            if client_id is not None or client_token:
+                if not resolved_client:
+                    raise ValueError("Client was not found for the provided identifier/token.")
+                filters.append("sp.client_id = ?")
+                params.append(resolved_client["id"])
+
+            if query and query.strip():
+                filters.append("LOWER(sp.product_name) LIKE ?")
+                params.append(f"%{query.strip().lower()}%")
+
+            where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+            rows = conn.execute(
+                f"""
+                SELECT
+                    sp.id,
+                    sp.client_id,
+                    c.name AS client_name,
+                    a.slug AS account_slug,
+                    sp.product_name,
+                    sp.product_type,
+                    sp.stock,
+                    sp.metadata,
+                    sp.created_at,
+                    sp.updated_at
+                FROM stock_products sp
+                JOIN clients c ON c.id = sp.client_id
+                JOIN accounts a ON a.id = c.account_id
+                {where_clause}
+                ORDER BY sp.updated_at DESC, sp.id DESC
+                LIMIT ?
+                """,
+                (*params, safe_limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def upsert_stock_product(
+        self,
+        *,
+        product_name: str,
+        stock: int,
+        product_type: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        client_id: int | None = None,
+        client_token: str | None = None,
+    ) -> dict[str, Any]:
+        normalized_name = product_name.strip()
+        normalized_type = product_type.strip() if product_type else ""
+        if not normalized_name:
+            raise ValueError("Product name cannot be empty.")
+        if stock < 0:
+            raise ValueError("Stock cannot be negative.")
+
+        now = _utc_now()
+        with self._connect() as conn:
+            client = self._resolve_client(conn, client_id=client_id, client_token=client_token)
+            if not client:
+                raise ValueError("Client was not found for the provided identifier/token.")
+
+            existing = conn.execute(
+                """
+                SELECT id
+                FROM stock_products
+                WHERE client_id = ? AND product_name = ? AND product_type = ?
+                """,
+                (client["id"], normalized_name, normalized_type),
+            ).fetchone()
+            if existing:
+                product_id = int(existing["id"])
+                conn.execute(
+                    """
+                    UPDATE stock_products
+                    SET stock = ?, metadata = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        stock,
+                        json.dumps(metadata, ensure_ascii=True) if metadata else None,
+                        now,
+                        product_id,
+                    ),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO stock_products (
+                        client_id,
+                        product_name,
+                        product_type,
+                        stock,
+                        metadata,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        client["id"],
+                        normalized_name,
+                        normalized_type,
+                        stock,
+                        json.dumps(metadata, ensure_ascii=True) if metadata else None,
+                        now,
+                        now,
+                    ),
+                )
+                product_id = int(cursor.lastrowid)
+
+            row = conn.execute(
+                """
+                SELECT
+                    sp.id,
+                    sp.client_id,
+                    c.name AS client_name,
+                    a.slug AS account_slug,
+                    sp.product_name,
+                    sp.product_type,
+                    sp.stock,
+                    sp.metadata,
+                    sp.created_at,
+                    sp.updated_at
+                FROM stock_products sp
+                JOIN clients c ON c.id = sp.client_id
+                JOIN accounts a ON a.id = c.account_id
+                WHERE sp.id = ?
+                """,
+                (product_id,),
+            ).fetchone()
+        return dict(row) if row else {}
+
+    def search_stock_products(
+        self,
+        *,
+        client_id: int,
+        query_tokens: list[str],
+        limit: int = 5,
+    ) -> list[StockMatch]:
+        normalized_tokens = [
+            _normalize_search_text(token)
+            for token in query_tokens
+            if token and token.strip()
+        ]
+        if not normalized_tokens:
+            return []
+
+        safe_limit = max(1, min(limit, 20))
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, product_name, product_type, stock
+                FROM stock_products
+                WHERE client_id = ?
+                """,
+                (client_id,),
+            ).fetchall()
+
+        ranked_rows: list[tuple[int, int, StockMatch]] = []
+        for row in rows:
+            product_name = str(row["product_name"])
+            normalized_product = _normalize_search_text(product_name)
+            score = sum(token in normalized_product for token in normalized_tokens)
+            if score == 0:
+                continue
+
+            ranked_rows.append(
+                (
+                    score,
+                    -len(product_name),
+                    StockMatch(
+                        product_id=int(row["id"]),
+                        product_name=product_name,
+                        product_type=str(row["product_type"] or ""),
+                        stock=int(row["stock"] or 0),
+                    ),
+                )
+            )
+
+        ranked_rows.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        if not ranked_rows:
+            return []
+
+        best_score = ranked_rows[0][0]
+        return [match for score, _, match in ranked_rows if score == best_score][:safe_limit]
 
     def list_conversations(self, limit: int = 50) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 200))

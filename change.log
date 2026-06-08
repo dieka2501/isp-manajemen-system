@@ -1,3 +1,10 @@
+2026-06-08
+- Migrated stock lookup from Google Sheets to SQLite by adding the `stock_products` table scoped per client.
+- Removed runtime Google Sheets logging/lookup from the chatbot flow; inbound and outbound chat data now stays in SQLite messages/conversations.
+- Added API endpoints to list and upsert stock products through `/api/v1/chat/stock-products`.
+- Removed Google Sheets environment variables and Google API dependencies from backend dependency files.
+- Updated backend documentation to describe the SQLite-only stock workflow.
+
 2026-06-06
 - Restructured the project so the repository root contains `backend/` and `frontend/`.
 - Moved the SQLite explorer frontend back to the top-level `frontend/` folder.
