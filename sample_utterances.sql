@@ -1,0 +1,35 @@
+INSERT INTO sample_utterances 
+(intent_code, lang_code, utterance, formality_level, expected_entities, notes) VALUES
+
+('ask_installation', 'id', 'Halo kak, saya mau pasang internet di rumah, bisa dibantu?', 'semi_formal', '{}', NULL),
+('ask_installation', 'id', 'Kang, mau pasang wifi rumah nih', 'informal', '{}', NULL),
+('ask_package', 'id', 'Paket internet rumahnya ada apa saja ya?', 'semi_formal', '{}', NULL),
+('ask_price', 'id', 'Kalau paket 30 Mbps berapa per bulan?', 'informal', '{"speed":"30 Mbps"}', NULL),
+('ask_coverage', 'id', 'Alamat saya di Cibiru, apakah sudah tercover jaringan?', 'semi_formal', '{"area":"Cibiru"}', NULL),
+('ask_installation_schedule', 'id', 'Kalau daftar sekarang, teknisi bisa datang kapan?', 'semi_formal', '{}', NULL),
+('ask_payment_method', 'id', 'Pembayarannya bisa pakai QRIS atau transfer?', 'informal', '{"payment_method":["qris","bank_transfer"]}', NULL),
+('choose_package', 'id', 'Saya ambil paket 50 Mbps saja', 'semi_formal', '{"speed":"50 Mbps"}', NULL),
+('confirm_order', 'id', 'Oke kak, saya jadi pasang. Tolong proses ya', 'semi_formal', '{}', NULL),
+('follow_up_installation', 'id', 'Teknisinya sudah sampai mana ya? Saya sudah menunggu dari pagi', 'semi_formal', '{"schedule_time":"morning"}', NULL),
+
+('ask_installation', 'su', 'Kang, abdi hoyong pasang internet di bumi', 'semi_formal', '{}', NULL),
+('ask_installation', 'su', 'Rek masang wifi di imah, bisa?', 'informal', '{}', NULL),
+('ask_package', 'su', 'Paketna aya naon wae kang?', 'informal', '{}', NULL),
+('ask_price', 'su', 'Paket 30 Mbps sabaraha sabulan?', 'informal', '{"speed":"30 Mbps"}', NULL),
+('ask_coverage', 'su', 'Di daerah Cibiru tos aya jaringan?', 'semi_formal', '{"area":"Cibiru"}', NULL),
+('ask_installation_schedule', 'su', 'Teknisi tiasa sumping iraha?', 'formal', '{}', NULL),
+('ask_payment_method', 'su', 'Bayarna tiasa transfer atanapi QRIS?', 'semi_formal', '{"payment_method":["bank_transfer","qris"]}', NULL),
+('choose_package', 'su', 'Abdi pilih paket 50 Mbps wae', 'semi_formal', '{"speed":"50 Mbps"}', NULL),
+('confirm_order', 'su', 'Muhun, abdi jadi pasang. Punten diproses', 'formal', '{}', NULL),
+('follow_up_installation', 'su', 'Kang, teknisina tos dugi mana? Abdi tos ngantosan', 'informal', '{}', NULL),
+
+('ask_installation', 'en', 'Hi, I want to install home internet. Can you help me?', 'semi_formal', '{}', NULL),
+('ask_installation', 'en', 'I need wifi installed at my house', 'informal', '{}', NULL),
+('ask_package', 'en', 'What internet packages do you have?', 'informal', '{}', NULL),
+('ask_price', 'en', 'How much is the 30 Mbps plan per month?', 'semi_formal', '{"speed":"30 Mbps"}', NULL),
+('ask_coverage', 'en', 'Can you check if my address is covered?', 'semi_formal', '{}', NULL),
+('ask_installation_schedule', 'en', 'If I register today, when can the technician come?', 'semi_formal', '{}', NULL),
+('ask_payment_method', 'en', 'Can I pay by bank transfer or QRIS?', 'semi_formal', '{"payment_method":["bank_transfer","qris"]}', NULL),
+('choose_package', 'en', 'I will take the 50 Mbps package', 'semi_formal', '{"speed":"50 Mbps"}', NULL),
+('confirm_order', 'en', 'Okay, please proceed with the installation', 'formal', '{}', NULL),
+('follow_up_installation', 'en', 'Where is the technician now? I have been waiting since morning', 'semi_formal', '{"schedule_time":"morning"}', NULL);

@@ -9,7 +9,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.core.config import Settings
+from app.core.config import PROJECT_ROOT, Settings
+
+INTENT_SEED_SQL_FILES = (
+    "intents.sql",
+    "languages.sql",
+    "entities.sql",
+    "keywords.sql",
+    "entity_keywords.sql",
+    "sample_utterances.sql",
+    "normalization_rules.sql",
+)
 
 
 def _utc_now() -> str:
@@ -19,6 +29,12 @@ def _utc_now() -> str:
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
     return slug or "account"
+
+
+def _normalize_search_text(value: str) -> str:
+    return " ".join(
+        "".join(char.lower() if char.isalnum() else " " for char in value).split()
+    )
 
 
 @dataclass(frozen=True)
@@ -42,6 +58,22 @@ class StoredIncomingMessage:
     sender_number: str
     sender_name: str | None
     device: DeviceContext
+
+
+@dataclass(frozen=True)
+class StockMatch:
+    product_id: int
+    product_name: str
+    product_type: str
+    stock: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "product_id": self.product_id,
+            "product_name": self.product_name,
+            "product_type": self.product_type,
+            "stock": self.stock,
+        }
 
 
 class SQLiteChatStore:
@@ -113,13 +145,177 @@ class SQLiteChatStore:
                     FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS stock_products (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    product_name TEXT NOT NULL,
+                    product_type TEXT,
+                    stock INTEGER NOT NULL DEFAULT 0,
+                    metadata TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    UNIQUE (client_id, product_name, product_type)
+                );
+
+                CREATE TABLE IF NOT EXISTS intents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    intent_code TEXT NOT NULL UNIQUE,
+                    intent_name TEXT NOT NULL,
+                    description TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS languages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    lang_code TEXT NOT NULL UNIQUE,
+                    lang_name TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS keywords (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    intent_code TEXT NOT NULL,
+                    lang_code TEXT NOT NULL,
+                    keyword TEXT NOT NULL,
+                    normalized_keyword TEXT,
+                    formality_level TEXT,
+                    weight INTEGER DEFAULT 1,
+                    notes TEXT,
+                    FOREIGN KEY (intent_code) REFERENCES intents (intent_code),
+                    FOREIGN KEY (lang_code) REFERENCES languages (lang_code),
+                    UNIQUE (intent_code, lang_code, keyword)
+                );
+
+                CREATE TABLE IF NOT EXISTS entities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity_code TEXT NOT NULL UNIQUE,
+                    entity_name TEXT NOT NULL,
+                    description TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS entity_keywords (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity_code TEXT NOT NULL,
+                    lang_code TEXT NOT NULL,
+                    keyword TEXT NOT NULL,
+                    normalized_keyword TEXT,
+                    notes TEXT,
+                    FOREIGN KEY (entity_code) REFERENCES entities (entity_code),
+                    FOREIGN KEY (lang_code) REFERENCES languages (lang_code),
+                    UNIQUE (entity_code, lang_code, keyword)
+                );
+
+                CREATE TABLE IF NOT EXISTS sample_utterances (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    intent_code TEXT NOT NULL,
+                    lang_code TEXT NOT NULL,
+                    utterance TEXT NOT NULL,
+                    formality_level TEXT,
+                    expected_entities TEXT,
+                    notes TEXT,
+                    FOREIGN KEY (intent_code) REFERENCES intents (intent_code),
+                    FOREIGN KEY (lang_code) REFERENCES languages (lang_code),
+                    UNIQUE (intent_code, lang_code, utterance)
+                );
+
+                CREATE TABLE IF NOT EXISTS normalization_rules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    lang_code TEXT NOT NULL,
+                    source_text TEXT NOT NULL,
+                    normalized_text TEXT NOT NULL,
+                    notes TEXT,
+                    FOREIGN KEY (lang_code) REFERENCES languages (lang_code),
+                    UNIQUE (lang_code, source_text)
+                );
+
+                CREATE TABLE IF NOT EXISTS intent_mappings (
+                    intent_code TEXT PRIMARY KEY,
+                    description TEXT,
+                    required_slots TEXT NOT NULL DEFAULT '[]',
+                    optional_slots TEXT NOT NULL DEFAULT '[]',
+                    next_action TEXT,
+                    FOREIGN KEY (intent_code) REFERENCES intents (intent_code)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_clients_account_id ON clients (account_id);
                 CREATE INDEX IF NOT EXISTS idx_devices_client_id ON devices (client_id);
                 CREATE INDEX IF NOT EXISTS idx_conversations_client_id ON conversations (client_id);
                 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages (conversation_id);
                 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages (created_at);
+                CREATE INDEX IF NOT EXISTS idx_stock_products_client_id
+                    ON stock_products (client_id);
+                CREATE INDEX IF NOT EXISTS idx_stock_products_name
+                    ON stock_products (product_name);
+                CREATE INDEX IF NOT EXISTS idx_keywords_intent_lang
+                    ON keywords (intent_code, lang_code);
+                CREATE INDEX IF NOT EXISTS idx_keywords_normalized_keyword
+                    ON keywords (normalized_keyword);
+                CREATE INDEX IF NOT EXISTS idx_entity_keywords_entity_lang
+                    ON entity_keywords (entity_code, lang_code);
+                CREATE INDEX IF NOT EXISTS idx_sample_utterances_intent_lang
+                    ON sample_utterances (intent_code, lang_code);
+                CREATE INDEX IF NOT EXISTS idx_normalization_rules_lang
+                    ON normalization_rules (lang_code);
                 """
             )
+            self._seed_intent_catalog(conn)
+
+    def _seed_intent_catalog(self, conn: sqlite3.Connection) -> None:
+        for filename in INTENT_SEED_SQL_FILES:
+            seed_path = PROJECT_ROOT / filename
+            if not seed_path.exists():
+                continue
+            script = seed_path.read_text(encoding="utf-8").strip()
+            if not script:
+                continue
+            conn.executescript(self._make_insert_script_idempotent(script))
+
+        mapping_path = PROJECT_ROOT / "intent_mapping.json"
+        if not mapping_path.exists():
+            return
+
+        raw_mapping = mapping_path.read_text(encoding="utf-8").strip()
+        if not raw_mapping:
+            return
+
+        mapping = json.loads(raw_mapping)
+        if not isinstance(mapping, dict):
+            raise ValueError("intent_mapping.json must contain a JSON object.")
+
+        for intent_code, item in mapping.items():
+            if not isinstance(item, dict):
+                continue
+            conn.execute(
+                """
+                INSERT INTO intent_mappings (
+                    intent_code,
+                    description,
+                    required_slots,
+                    optional_slots,
+                    next_action
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(intent_code) DO UPDATE SET
+                    description = excluded.description,
+                    required_slots = excluded.required_slots,
+                    optional_slots = excluded.optional_slots,
+                    next_action = excluded.next_action
+                """,
+                (
+                    str(intent_code),
+                    item.get("description"),
+                    json.dumps(item.get("required_slots") or [], ensure_ascii=True),
+                    json.dumps(item.get("optional_slots") or [], ensure_ascii=True),
+                    item.get("next_action"),
+                ),
+            )
+
+    def _make_insert_script_idempotent(self, script: str) -> str:
+        return re.sub(
+            r"\bINSERT\s+INTO\b",
+            "INSERT OR IGNORE INTO",
+            script,
+            flags=re.IGNORECASE,
+        )
 
     def list_accounts(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
@@ -449,6 +645,274 @@ class SQLiteChatStore:
                     message_id,
                 ),
             )
+
+    def get_intent_agent_catalog(self) -> dict[str, Any]:
+        with self._connect() as conn:
+            intents = conn.execute(
+                """
+                SELECT intent_code, intent_name, description
+                FROM intents
+                ORDER BY intent_code
+                """
+            ).fetchall()
+            intent_keywords = conn.execute(
+                """
+                SELECT
+                    k.intent_code,
+                    i.intent_name,
+                    k.lang_code,
+                    k.keyword,
+                    k.normalized_keyword,
+                    k.formality_level,
+                    k.weight,
+                    k.notes
+                FROM keywords k
+                JOIN intents i ON i.intent_code = k.intent_code
+                ORDER BY k.weight DESC, k.intent_code, k.lang_code, k.keyword
+                """
+            ).fetchall()
+            entity_keywords = conn.execute(
+                """
+                SELECT
+                    ek.entity_code,
+                    e.entity_name,
+                    ek.lang_code,
+                    ek.keyword,
+                    ek.normalized_keyword,
+                    ek.notes
+                FROM entity_keywords ek
+                JOIN entities e ON e.entity_code = ek.entity_code
+                ORDER BY ek.entity_code, ek.lang_code, ek.keyword
+                """
+            ).fetchall()
+            normalization_rules = conn.execute(
+                """
+                SELECT lang_code, source_text, normalized_text, notes
+                FROM normalization_rules
+                ORDER BY lang_code, source_text
+                """
+            ).fetchall()
+            mappings = conn.execute(
+                """
+                SELECT
+                    intent_code,
+                    description,
+                    required_slots,
+                    optional_slots,
+                    next_action
+                FROM intent_mappings
+                ORDER BY intent_code
+                """
+            ).fetchall()
+
+        return {
+            "intents": [dict(row) for row in intents],
+            "intent_keywords": [dict(row) for row in intent_keywords],
+            "entity_keywords": [dict(row) for row in entity_keywords],
+            "normalization_rules": [dict(row) for row in normalization_rules],
+            "intent_mappings": [dict(row) for row in mappings],
+        }
+
+    def list_stock_products(
+        self,
+        *,
+        client_id: int | None = None,
+        client_token: str | None = None,
+        query: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 500))
+        filters = []
+        params: list[Any] = []
+
+        with self._connect() as conn:
+            resolved_client = self._resolve_client(
+                conn,
+                client_id=client_id,
+                client_token=client_token,
+            )
+            if client_id is not None or client_token:
+                if not resolved_client:
+                    raise ValueError("Client was not found for the provided identifier/token.")
+                filters.append("sp.client_id = ?")
+                params.append(resolved_client["id"])
+
+            if query and query.strip():
+                filters.append("LOWER(sp.product_name) LIKE ?")
+                params.append(f"%{query.strip().lower()}%")
+
+            where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+            rows = conn.execute(
+                f"""
+                SELECT
+                    sp.id,
+                    sp.client_id,
+                    c.name AS client_name,
+                    a.slug AS account_slug,
+                    sp.product_name,
+                    sp.product_type,
+                    sp.stock,
+                    sp.metadata,
+                    sp.created_at,
+                    sp.updated_at
+                FROM stock_products sp
+                JOIN clients c ON c.id = sp.client_id
+                JOIN accounts a ON a.id = c.account_id
+                {where_clause}
+                ORDER BY sp.updated_at DESC, sp.id DESC
+                LIMIT ?
+                """,
+                (*params, safe_limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def upsert_stock_product(
+        self,
+        *,
+        product_name: str,
+        stock: int,
+        product_type: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        client_id: int | None = None,
+        client_token: str | None = None,
+    ) -> dict[str, Any]:
+        normalized_name = product_name.strip()
+        normalized_type = product_type.strip() if product_type else ""
+        if not normalized_name:
+            raise ValueError("Product name cannot be empty.")
+        if stock < 0:
+            raise ValueError("Stock cannot be negative.")
+
+        now = _utc_now()
+        with self._connect() as conn:
+            client = self._resolve_client(conn, client_id=client_id, client_token=client_token)
+            if not client:
+                raise ValueError("Client was not found for the provided identifier/token.")
+
+            existing = conn.execute(
+                """
+                SELECT id
+                FROM stock_products
+                WHERE client_id = ? AND product_name = ? AND product_type = ?
+                """,
+                (client["id"], normalized_name, normalized_type),
+            ).fetchone()
+            if existing:
+                product_id = int(existing["id"])
+                conn.execute(
+                    """
+                    UPDATE stock_products
+                    SET stock = ?, metadata = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        stock,
+                        json.dumps(metadata, ensure_ascii=True) if metadata else None,
+                        now,
+                        product_id,
+                    ),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO stock_products (
+                        client_id,
+                        product_name,
+                        product_type,
+                        stock,
+                        metadata,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        client["id"],
+                        normalized_name,
+                        normalized_type,
+                        stock,
+                        json.dumps(metadata, ensure_ascii=True) if metadata else None,
+                        now,
+                        now,
+                    ),
+                )
+                product_id = int(cursor.lastrowid)
+
+            row = conn.execute(
+                """
+                SELECT
+                    sp.id,
+                    sp.client_id,
+                    c.name AS client_name,
+                    a.slug AS account_slug,
+                    sp.product_name,
+                    sp.product_type,
+                    sp.stock,
+                    sp.metadata,
+                    sp.created_at,
+                    sp.updated_at
+                FROM stock_products sp
+                JOIN clients c ON c.id = sp.client_id
+                JOIN accounts a ON a.id = c.account_id
+                WHERE sp.id = ?
+                """,
+                (product_id,),
+            ).fetchone()
+        return dict(row) if row else {}
+
+    def search_stock_products(
+        self,
+        *,
+        client_id: int,
+        query_tokens: list[str],
+        limit: int = 5,
+    ) -> list[StockMatch]:
+        normalized_tokens = [
+            _normalize_search_text(token)
+            for token in query_tokens
+            if token and token.strip()
+        ]
+        if not normalized_tokens:
+            return []
+
+        safe_limit = max(1, min(limit, 20))
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, product_name, product_type, stock
+                FROM stock_products
+                WHERE client_id = ?
+                """,
+                (client_id,),
+            ).fetchall()
+
+        ranked_rows: list[tuple[int, int, StockMatch]] = []
+        for row in rows:
+            product_name = str(row["product_name"])
+            normalized_product = _normalize_search_text(product_name)
+            score = sum(token in normalized_product for token in normalized_tokens)
+            if score == 0:
+                continue
+
+            ranked_rows.append(
+                (
+                    score,
+                    -len(product_name),
+                    StockMatch(
+                        product_id=int(row["id"]),
+                        product_name=product_name,
+                        product_type=str(row["product_type"] or ""),
+                        stock=int(row["stock"] or 0),
+                    ),
+                )
+            )
+
+        ranked_rows.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        if not ranked_rows:
+            return []
+
+        best_score = ranked_rows[0][0]
+        return [match for score, _, match in ranked_rows if score == best_score][:safe_limit]
 
     def list_conversations(self, limit: int = 50) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 200))

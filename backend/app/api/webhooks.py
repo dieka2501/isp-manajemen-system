@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.core.config import get_settings
-from app.services.chatbot import InventoryChatService
+from app.services.chatbot import ISPCSChatService
 
 webhooks_router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -45,7 +45,7 @@ async def receive_fonnte_webhook(
         ) from exc
 
     try:
-        result = InventoryChatService(settings).handle_incoming_payload(payload)
+        result = ISPCSChatService(settings).handle_incoming_payload(payload)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -62,7 +62,6 @@ async def receive_fonnte_webhook(
             detail=f"Unexpected webhook processing error: {exc}",
         ) from exc
 
-    updates = result.get("sheets_log_updates") or {}
     return {
         "status": "ok",
         "saved": True,
@@ -76,10 +75,6 @@ async def receive_fonnte_webhook(
         "reply_text": result["reply_text"],
         "reply_sent": result["reply_sent"],
         "send_error": result["send_error"],
-        "spreadsheet_id": settings.google_sheets_spreadsheet_id or None,
-        "updated_range": updates.get("updatedRange"),
-        "updated_rows": updates.get("updatedRows"),
-        "sheets_log_error": result["sheets_log_error"],
     }
 
 

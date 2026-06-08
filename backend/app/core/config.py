@@ -10,11 +10,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 load_dotenv(PROJECT_ROOT / ".env")
 
 
-def _csv_env(name: str, default: str) -> tuple[str, ...]:
-    raw = os.getenv(name, default)
-    return tuple(item.strip().lower() for item in raw.split(",") if item.strip())
-
-
 @dataclass(frozen=True)
 class Settings:
     app_name: str = os.getenv("APP_NAME", "ISP Manajemen Backend")
@@ -27,21 +22,12 @@ class Settings:
     fonnte_token: str = os.getenv("FONNTE_TOKEN", "")
     fonnte_default_country_code: str = os.getenv("FONNTE_DEFAULT_COUNTRY_CODE", "62")
     fonnte_webhook_secret: str = os.getenv("FONNTE_WEBHOOK_SECRET", "")
-    google_service_account_file: str = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "")
-    google_service_account_json: str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
-    google_sheets_spreadsheet_id: str = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID", "")
-    google_sheets_worksheet_name: str = os.getenv("GOOGLE_SHEETS_WORKSHEET_NAME", "incoming_whatsapp")
-    google_sheets_stock_worksheet_name: str = os.getenv("GOOGLE_SHEETS_STOCK_WORKSHEET_NAME", "stock")
     chat_database_path: str = os.getenv(
         "CHAT_DATABASE_PATH",
         str(BASE_DIR / "data" / "chat.sqlite3"),
     )
     chat_auto_account_name: str = os.getenv("CHAT_AUTO_ACCOUNT_NAME", "Auto Ingest Account")
     chat_auto_account_slug: str = os.getenv("CHAT_AUTO_ACCOUNT_SLUG", "auto-ingest")
-    chat_trigger_keywords: tuple[str, ...] = _csv_env(
-        "CHAT_TRIGGER_KEYWORDS",
-        "diecast,hotwheel,stock,harga",
-    )
     sqlite_explorer_sources_json: str = os.getenv("SQLITE_EXPLORER_SOURCES_JSON", "")
     dashboard_secret: str = os.getenv("DASHBOARD_SECRET", "")
     dashboard_cookie_name: str = os.getenv(

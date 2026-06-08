@@ -35,7 +35,8 @@ Fitur awal:
 - konfigurasi berbasis environment variable
 - endpoint health check
 - utilitas CLI untuk tes kirim WhatsApp via Fonnte
-- webhook Fonnte untuk menyimpan chat masuk ke Google Sheets
+- webhook Fonnte untuk menyimpan chat masuk ke SQLite
+- agent CS/Sales ISP berbasis SQLite untuk intent, entity, slot, dan balasan awal
 - siap dikembangkan untuk modul autentikasi, pelanggan, billing, dan notifikasi
 
 ### `frontend`

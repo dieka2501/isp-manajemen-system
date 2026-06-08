@@ -1,0 +1,24 @@
+INSERT INTO normalization_rules (lang_code, source_text, normalized_text, notes) VALUES
+('id', 'inet', 'internet', 'slang'),
+('id', 'net', 'internet', 'slang'),
+('id', 'wifi', 'WiFi', 'standardization'),
+('id', 'wi-fi', 'WiFi', 'standardization'),
+('id', 'tf', 'transfer', 'payment slang'),
+('id', '20 mega', '20 Mbps', 'speed normalization'),
+('id', '30mb', '30 Mbps', 'speed normalization'),
+
+('su', 'rek', 'ingin', 'Sundanese informal'),
+('su', 'hoyong', 'ingin', 'Sundanese polite'),
+('su', 'bade', 'ingin', 'Sundanese polite'),
+('su', 'sabaraha', 'berapa', 'Sundanese'),
+('su', 'iraha', 'kapan', 'Sundanese'),
+('su', 'imah', 'rumah', 'Sundanese informal'),
+('su', 'bumi', 'rumah', 'Sundanese polite'),
+('su', 'tos', 'sudah', 'Sundanese'),
+('su', 'acan', 'belum', 'Sundanese'),
+
+('en', 'wifi', 'WiFi', 'standardization'),
+('en', 'wi-fi', 'WiFi', 'standardization'),
+('en', 'broadband', 'home internet', 'service synonym'),
+('en', 'monthly fee', 'monthly price', 'price synonym'),
+('en', 'upfront cost', 'initial cost', 'price synonym');
