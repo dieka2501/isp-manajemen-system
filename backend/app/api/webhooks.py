@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.core.config import get_settings
-from app.services.chatbot import InventoryChatService
+from app.services.chatbot import ISPCSChatService
 
 webhooks_router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -45,7 +45,7 @@ async def receive_fonnte_webhook(
         ) from exc
 
     try:
-        result = InventoryChatService(settings).handle_incoming_payload(payload)
+        result = ISPCSChatService(settings).handle_incoming_payload(payload)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

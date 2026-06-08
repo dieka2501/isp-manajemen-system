@@ -10,11 +10,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 load_dotenv(PROJECT_ROOT / ".env")
 
 
-def _csv_env(name: str, default: str) -> tuple[str, ...]:
-    raw = os.getenv(name, default)
-    return tuple(item.strip().lower() for item in raw.split(",") if item.strip())
-
-
 @dataclass(frozen=True)
 class Settings:
     app_name: str = os.getenv("APP_NAME", "ISP Manajemen Backend")
@@ -33,10 +28,6 @@ class Settings:
     )
     chat_auto_account_name: str = os.getenv("CHAT_AUTO_ACCOUNT_NAME", "Auto Ingest Account")
     chat_auto_account_slug: str = os.getenv("CHAT_AUTO_ACCOUNT_SLUG", "auto-ingest")
-    chat_trigger_keywords: tuple[str, ...] = _csv_env(
-        "CHAT_TRIGGER_KEYWORDS",
-        "diecast,hotwheel,stock,harga",
-    )
     sqlite_explorer_sources_json: str = os.getenv("SQLITE_EXPLORER_SOURCES_JSON", "")
     dashboard_secret: str = os.getenv("DASHBOARD_SECRET", "")
     dashboard_cookie_name: str = os.getenv(

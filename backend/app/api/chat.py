@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.services.chat_store import SQLiteChatStore
+from app.services.isp_agent import ISPCSAgent
 
 chat_router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -35,6 +36,10 @@ class StockProductUpsertRequest(BaseModel):
     product_type: str | None = None
     stock: int = Field(ge=0)
     metadata: dict[str, object] | None = None
+
+
+class AgentPreviewRequest(BaseModel):
+    message: str = Field(min_length=1)
 
 
 def _store() -> SQLiteChatStore:
@@ -134,6 +139,12 @@ def upsert_stock_product(payload: StockProductUpsertRequest) -> dict[str, object
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return {"item": item}
+
+
+@chat_router.post("/agent/preview")
+def preview_agent_reply(payload: AgentPreviewRequest) -> dict[str, object]:
+    store = _store()
+    return {"item": ISPCSAgent(store.get_intent_agent_catalog()).answer(payload.message).as_dict()}
 
 
 @chat_router.get("/conversations")

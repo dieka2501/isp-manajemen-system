@@ -646,6 +646,73 @@ class SQLiteChatStore:
                 ),
             )
 
+    def get_intent_agent_catalog(self) -> dict[str, Any]:
+        with self._connect() as conn:
+            intents = conn.execute(
+                """
+                SELECT intent_code, intent_name, description
+                FROM intents
+                ORDER BY intent_code
+                """
+            ).fetchall()
+            intent_keywords = conn.execute(
+                """
+                SELECT
+                    k.intent_code,
+                    i.intent_name,
+                    k.lang_code,
+                    k.keyword,
+                    k.normalized_keyword,
+                    k.formality_level,
+                    k.weight,
+                    k.notes
+                FROM keywords k
+                JOIN intents i ON i.intent_code = k.intent_code
+                ORDER BY k.weight DESC, k.intent_code, k.lang_code, k.keyword
+                """
+            ).fetchall()
+            entity_keywords = conn.execute(
+                """
+                SELECT
+                    ek.entity_code,
+                    e.entity_name,
+                    ek.lang_code,
+                    ek.keyword,
+                    ek.normalized_keyword,
+                    ek.notes
+                FROM entity_keywords ek
+                JOIN entities e ON e.entity_code = ek.entity_code
+                ORDER BY ek.entity_code, ek.lang_code, ek.keyword
+                """
+            ).fetchall()
+            normalization_rules = conn.execute(
+                """
+                SELECT lang_code, source_text, normalized_text, notes
+                FROM normalization_rules
+                ORDER BY lang_code, source_text
+                """
+            ).fetchall()
+            mappings = conn.execute(
+                """
+                SELECT
+                    intent_code,
+                    description,
+                    required_slots,
+                    optional_slots,
+                    next_action
+                FROM intent_mappings
+                ORDER BY intent_code
+                """
+            ).fetchall()
+
+        return {
+            "intents": [dict(row) for row in intents],
+            "intent_keywords": [dict(row) for row in intent_keywords],
+            "entity_keywords": [dict(row) for row in entity_keywords],
+            "normalization_rules": [dict(row) for row in normalization_rules],
+            "intent_mappings": [dict(row) for row in mappings],
+        }
+
     def list_stock_products(
         self,
         *,

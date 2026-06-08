@@ -49,18 +49,19 @@ python -m app.cli.send_whatsapp -n 08123456789 -m "Halo dari CLI"
 
 ## Sistem Chat Fonnte + SQLite
 
-Webhook ini menerima chat masuk dari Fonnte, menyimpan percakapan ke SQLite, lalu:
+Webhook ini menerima chat masuk dari Fonnte, menyimpan percakapan ke SQLite, lalu menjalankan agent CS/Sales ISP berbasis data intent/entity di SQLite.
 
-1. Mencari trigger keyword: `diecast`, `hotwheel`, `stock`, `harga`.
-2. Menjadikan kata lain di pesan sebagai token pencarian.
-3. Mengquery tabel SQLite `stock_products` pada kolom nama produk milik client.
-4. Mengirim balasan otomatis ke WhatsApp jika produk ditemukan.
-5. Jika pesan tidak mengandung keyword, sistem membalas dengan pesan fallback.
+1. Menormalisasi pesan customer memakai `normalization_rules`.
+2. Mendeteksi bahasa dan intent dari tabel `keywords`.
+3. Mengekstrak entity seperti speed, metode pembayaran, jadwal, alamat, nomor HP, dan harga.
+4. Membaca slot dan `next_action` dari `intent_mappings`.
+5. Menyusun balasan CS/Sales seperti cek coverage, info paket, harga, jadwal teknisi, pembayaran, atau order pemasangan.
+6. Mengirim balasan otomatis ke WhatsApp bila token Fonnte tersedia.
 
-Format balasan:
+Contoh balasan:
 
 ```text
-Untuk {Nama Product} {type} mempunyai stock {Stock} buah.
+Bisa Kak, kami bantu proses pemasangan internet rumah. Mohon kirim alamat lengkap, nama pelanggan, nomor HP aktif.
 ```
 
 Endpoint:
@@ -68,6 +69,7 @@ Endpoint:
 ```text
 GET /api/v1/webhooks/fonnte
 POST /api/v1/webhooks/fonnte
+POST /api/v1/chat/agent/preview
 ```
 
 Kalau ingin endpoint lebih aman, isi `FONNTE_WEBHOOK_SECRET` lalu pasang webhook URL dengan query string:
@@ -140,6 +142,7 @@ POST /api/v1/chat/clients
 POST /api/v1/chat/devices
 GET  /api/v1/chat/stock-products
 POST /api/v1/chat/stock-products
+POST /api/v1/chat/agent/preview
 GET  /api/v1/chat/conversations
 GET  /api/v1/chat/conversations/{conversation_id}/messages
 ```
@@ -149,16 +152,16 @@ Contoh alur setup:
 1. Buat account.
 2. Buat client di account tersebut dan simpan `api_token` client.
 3. Register device Fonnte ke client dengan `device_identifier` dan `outbound_token`.
-4. Tambahkan data produk/stok untuk client tersebut ke SQLite.
+4. Pastikan database sudah ter-seed dengan intent/entity dari file SQL/JSON.
 5. Arahkan webhook Fonnte ke endpoint backend.
-6. Saat chat masuk berisi keyword terkait stok hotwheel, sistem akan mencari ke tabel `stock_products` dan membalas otomatis.
+6. Saat chat masuk, agent akan membaca intent dari SQLite dan membalas sebagai CS/Sales ISP.
 
 Contoh membuat account:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/chat/accounts \
   -H "Content-Type: application/json" \
-  -d '{"name":"Toko Diecast A","slug":"toko-diecast-a"}'
+  -d '{"name":"ISP Bandung Fiber","slug":"isp-bandung-fiber"}'
 ```
 
 Contoh membuat client:
@@ -166,7 +169,7 @@ Contoh membuat client:
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/chat/clients \
   -H "Content-Type: application/json" \
-  -d '{"account_slug":"toko-diecast-a","name":"Client Utama"}'
+  -d '{"account_slug":"isp-bandung-fiber","name":"Sales WhatsApp Utama"}'
 ```
 
 Contoh register device:
@@ -182,23 +185,18 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat/devices \
   }'
 ```
 
-Contoh menambahkan atau memperbarui stok produk:
+Contoh test agent tanpa kirim WhatsApp:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/chat/stock-products \
+curl -X POST http://127.0.0.1:8000/api/v1/chat/agent/preview \
   -H "Content-Type: application/json" \
-  -d '{
-    "client_token":"isi_token_dari_endpoint_client",
-    "product_name":"Hotwheel Civic EG",
-    "product_type":"regular",
-    "stock":12
-  }'
+  -d '{"message":"Halo kak, saya mau pasang internet rumah 30 Mbps di Cibiru"}'
 ```
 
 Setup singkat:
 
 1. Jalankan backend dengan `uvicorn app.main:app --reload`.
-2. Buat account, client, device, dan data stok lewat endpoint API.
+2. Buat account, client, dan device lewat endpoint API.
 3. Di dashboard Fonnte, isi webhook URL ke endpoint di atas dan aktifkan auto read.
 
 ## Deploy ke Railway

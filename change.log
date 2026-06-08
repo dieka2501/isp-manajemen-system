@@ -6,6 +6,8 @@
 - Updated backend documentation to describe the SQLite-only stock workflow.
 - Added SQLite intent/entity reference tables from `DB.md` and idempotent seed loading from root SQL/JSON files.
 - Added `python -m app.cli.init_sqlite` to initialize and seed SQLite without starting the web server.
+- Added a SQLite-backed ISP CS/Sales agent that classifies intent, extracts entities, detects missing slots, and composes customer replies.
+- Added `/api/v1/chat/agent/preview` to test agent replies without sending WhatsApp messages.
 
 2026-06-06
 - Restructured the project so the repository root contains `backend/` and `frontend/`.
