@@ -1,0 +1,18 @@
+INSERT INTO entities (entity_code, entity_name, description) VALUES
+('package_name', 'Nama paket', 'Nama paket internet seperti basic, family, gamer, corporate'),
+('speed', 'Kecepatan internet', 'Kecepatan internet dalam Mbps/Gbps'),
+('price', 'Harga', 'Harga paket atau biaya pemasangan'),
+('address', 'Alamat', 'Alamat pemasangan customer'),
+('area', 'Area/wilayah', 'Kota, kecamatan, desa, komplek, perumahan'),
+('schedule_date', 'Tanggal pemasangan', 'Tanggal teknisi datang'),
+('schedule_time', 'Jam pemasangan', 'Jam atau rentang waktu pemasangan'),
+('payment_method', 'Metode pembayaran', 'Transfer, QRIS, cash, e-wallet, virtual account'),
+('customer_name', 'Nama customer', 'Nama pelanggan'),
+('phone_number', 'Nomor HP', 'Nomor telepon customer'),
+('id_card', 'KTP', 'Data identitas customer'),
+('router', 'Router/modem', 'Perangkat internet'),
+('installation_fee', 'Biaya instalasi', 'Biaya pasang awal'),
+('promo', 'Promo', 'Diskon, cashback, free installation'),
+('contract_duration', 'Durasi kontrak', 'Masa berlangganan atau minimal kontrak'),
+('technician', 'Teknisi', 'Petugas instalasi'),
+('problem', 'Masalah', 'Kendala pemasangan atau jaringan');

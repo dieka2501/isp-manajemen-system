@@ -4,6 +4,8 @@
 - Added API endpoints to list and upsert stock products through `/api/v1/chat/stock-products`.
 - Removed Google Sheets environment variables and Google API dependencies from backend dependency files.
 - Updated backend documentation to describe the SQLite-only stock workflow.
+- Added SQLite intent/entity reference tables from `DB.md` and idempotent seed loading from root SQL/JSON files.
+- Added `python -m app.cli.init_sqlite` to initialize and seed SQLite without starting the web server.
 
 2026-06-06
 - Restructured the project so the repository root contains `backend/` and `frontend/`.

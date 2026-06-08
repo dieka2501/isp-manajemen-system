@@ -90,12 +90,36 @@ Database SQLite akan otomatis dibuat saat app start dan menyimpan:
 - `conversations`
 - `messages`
 - `stock_products`
+- `intents`
+- `languages`
+- `keywords`
+- `entities`
+- `entity_keywords`
+- `sample_utterances`
+- `normalization_rules`
+- `intent_mappings`
+
+Data referensi intent/entity otomatis di-seed dari file SQL/JSON di root repo:
+- `intents.sql`
+- `languages.sql`
+- `entities.sql`
+- `keywords.sql`
+- `entity_keywords.sql`
+- `sample_utterances.sql`
+- `normalization_rules.sql`
+- `intent_mapping.json`
 
 Desain ini mendukung:
 - multi account
 - multiple client
 - satu client memiliki banyak device
 - setiap client memiliki token API sendiri
+
+Jika ingin membuat dan seed database tanpa menjalankan server, gunakan:
+
+```bash
+python -m app.cli.init_sqlite
+```
 
 ## Endpoint Operasional Chat
 

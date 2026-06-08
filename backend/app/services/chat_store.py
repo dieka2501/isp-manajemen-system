@@ -9,7 +9,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.core.config import Settings
+from app.core.config import PROJECT_ROOT, Settings
+
+INTENT_SEED_SQL_FILES = (
+    "intents.sql",
+    "languages.sql",
+    "entities.sql",
+    "keywords.sql",
+    "entity_keywords.sql",
+    "sample_utterances.sql",
+    "normalization_rules.sql",
+)
 
 
 def _utc_now() -> str:
@@ -148,6 +158,84 @@ class SQLiteChatStore:
                     UNIQUE (client_id, product_name, product_type)
                 );
 
+                CREATE TABLE IF NOT EXISTS intents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    intent_code TEXT NOT NULL UNIQUE,
+                    intent_name TEXT NOT NULL,
+                    description TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS languages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    lang_code TEXT NOT NULL UNIQUE,
+                    lang_name TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS keywords (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    intent_code TEXT NOT NULL,
+                    lang_code TEXT NOT NULL,
+                    keyword TEXT NOT NULL,
+                    normalized_keyword TEXT,
+                    formality_level TEXT,
+                    weight INTEGER DEFAULT 1,
+                    notes TEXT,
+                    FOREIGN KEY (intent_code) REFERENCES intents (intent_code),
+                    FOREIGN KEY (lang_code) REFERENCES languages (lang_code),
+                    UNIQUE (intent_code, lang_code, keyword)
+                );
+
+                CREATE TABLE IF NOT EXISTS entities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity_code TEXT NOT NULL UNIQUE,
+                    entity_name TEXT NOT NULL,
+                    description TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS entity_keywords (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity_code TEXT NOT NULL,
+                    lang_code TEXT NOT NULL,
+                    keyword TEXT NOT NULL,
+                    normalized_keyword TEXT,
+                    notes TEXT,
+                    FOREIGN KEY (entity_code) REFERENCES entities (entity_code),
+                    FOREIGN KEY (lang_code) REFERENCES languages (lang_code),
+                    UNIQUE (entity_code, lang_code, keyword)
+                );
+
+                CREATE TABLE IF NOT EXISTS sample_utterances (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    intent_code TEXT NOT NULL,
+                    lang_code TEXT NOT NULL,
+                    utterance TEXT NOT NULL,
+                    formality_level TEXT,
+                    expected_entities TEXT,
+                    notes TEXT,
+                    FOREIGN KEY (intent_code) REFERENCES intents (intent_code),
+                    FOREIGN KEY (lang_code) REFERENCES languages (lang_code),
+                    UNIQUE (intent_code, lang_code, utterance)
+                );
+
+                CREATE TABLE IF NOT EXISTS normalization_rules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    lang_code TEXT NOT NULL,
+                    source_text TEXT NOT NULL,
+                    normalized_text TEXT NOT NULL,
+                    notes TEXT,
+                    FOREIGN KEY (lang_code) REFERENCES languages (lang_code),
+                    UNIQUE (lang_code, source_text)
+                );
+
+                CREATE TABLE IF NOT EXISTS intent_mappings (
+                    intent_code TEXT PRIMARY KEY,
+                    description TEXT,
+                    required_slots TEXT NOT NULL DEFAULT '[]',
+                    optional_slots TEXT NOT NULL DEFAULT '[]',
+                    next_action TEXT,
+                    FOREIGN KEY (intent_code) REFERENCES intents (intent_code)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_clients_account_id ON clients (account_id);
                 CREATE INDEX IF NOT EXISTS idx_devices_client_id ON devices (client_id);
                 CREATE INDEX IF NOT EXISTS idx_conversations_client_id ON conversations (client_id);
@@ -157,8 +245,77 @@ class SQLiteChatStore:
                     ON stock_products (client_id);
                 CREATE INDEX IF NOT EXISTS idx_stock_products_name
                     ON stock_products (product_name);
+                CREATE INDEX IF NOT EXISTS idx_keywords_intent_lang
+                    ON keywords (intent_code, lang_code);
+                CREATE INDEX IF NOT EXISTS idx_keywords_normalized_keyword
+                    ON keywords (normalized_keyword);
+                CREATE INDEX IF NOT EXISTS idx_entity_keywords_entity_lang
+                    ON entity_keywords (entity_code, lang_code);
+                CREATE INDEX IF NOT EXISTS idx_sample_utterances_intent_lang
+                    ON sample_utterances (intent_code, lang_code);
+                CREATE INDEX IF NOT EXISTS idx_normalization_rules_lang
+                    ON normalization_rules (lang_code);
                 """
             )
+            self._seed_intent_catalog(conn)
+
+    def _seed_intent_catalog(self, conn: sqlite3.Connection) -> None:
+        for filename in INTENT_SEED_SQL_FILES:
+            seed_path = PROJECT_ROOT / filename
+            if not seed_path.exists():
+                continue
+            script = seed_path.read_text(encoding="utf-8").strip()
+            if not script:
+                continue
+            conn.executescript(self._make_insert_script_idempotent(script))
+
+        mapping_path = PROJECT_ROOT / "intent_mapping.json"
+        if not mapping_path.exists():
+            return
+
+        raw_mapping = mapping_path.read_text(encoding="utf-8").strip()
+        if not raw_mapping:
+            return
+
+        mapping = json.loads(raw_mapping)
+        if not isinstance(mapping, dict):
+            raise ValueError("intent_mapping.json must contain a JSON object.")
+
+        for intent_code, item in mapping.items():
+            if not isinstance(item, dict):
+                continue
+            conn.execute(
+                """
+                INSERT INTO intent_mappings (
+                    intent_code,
+                    description,
+                    required_slots,
+                    optional_slots,
+                    next_action
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(intent_code) DO UPDATE SET
+                    description = excluded.description,
+                    required_slots = excluded.required_slots,
+                    optional_slots = excluded.optional_slots,
+                    next_action = excluded.next_action
+                """,
+                (
+                    str(intent_code),
+                    item.get("description"),
+                    json.dumps(item.get("required_slots") or [], ensure_ascii=True),
+                    json.dumps(item.get("optional_slots") or [], ensure_ascii=True),
+                    item.get("next_action"),
+                ),
+            )
+
+    def _make_insert_script_idempotent(self, script: str) -> str:
+        return re.sub(
+            r"\bINSERT\s+INTO\b",
+            "INSERT OR IGNORE INTO",
+            script,
+            flags=re.IGNORECASE,
+        )
 
     def list_accounts(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
