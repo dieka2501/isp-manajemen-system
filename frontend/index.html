@@ -15,7 +15,7 @@
       rel="stylesheet"
     />
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="/sqlexplorer-assets/styles.css" />
+    <link rel="stylesheet" href="/sqlexplorer-assets/styles.css?v=learning-tabs-20260609" />
   </head>
   <body>
     <div id="authGate" class="auth-gate hidden">
@@ -57,9 +57,9 @@
               Map unanswered customer questions into native intent data so the system can answer more before using OpenAI APIs.
             </p>
           </div>
-          <div class="flex flex-wrap gap-2 pt-2">
-            <button id="learningTab" class="tab-button is-active" type="button">Learning Queue</button>
-            <button id="explorerTab" class="tab-button" type="button">SQLite Explorer</button>
+          <div class="inline-flex w-fit flex-wrap gap-2 rounded-2xl border border-white/10 bg-white/5 p-2" role="tablist" aria-label="Dashboard views">
+            <button id="learningTab" class="action-button action-primary tab-button is-active" type="button" role="tab" aria-selected="true">Learning Queue</button>
+            <button id="explorerTab" class="action-button action-secondary tab-button" type="button" role="tab" aria-selected="false">SQLite Explorer</button>
           </div>
         </div>
         <div class="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200">
@@ -306,6 +306,6 @@
       </div>
     </div>
 
-    <script src="/sqlexplorer-assets/app.js" defer></script>
+    <script src="/sqlexplorer-assets/app.js?v=learning-tabs-20260609" defer></script>
   </body>
 </html>

@@ -195,6 +195,12 @@ function switchView(view) {
   el.explorerView.classList.toggle("hidden", view !== "explorer");
   el.learningTab.classList.toggle("is-active", view === "learning");
   el.explorerTab.classList.toggle("is-active", view === "explorer");
+  el.learningTab.classList.toggle("action-primary", view === "learning");
+  el.learningTab.classList.toggle("action-secondary", view !== "learning");
+  el.explorerTab.classList.toggle("action-primary", view === "explorer");
+  el.explorerTab.classList.toggle("action-secondary", view !== "explorer");
+  el.learningTab.setAttribute("aria-selected", view === "learning" ? "true" : "false");
+  el.explorerTab.setAttribute("aria-selected", view === "explorer" ? "true" : "false");
 }
 
 async function checkAuth() {
