@@ -1,3 +1,14 @@
+2026-06-09
+- Added a learning queue for low-confidence or unknown chat messages so unprocessed customer questions can be reviewed before future OpenAI API fallback.
+- Added SQLite persistence for `unprocessed_questions` with mapping status, candidates, entities, and reviewer metadata.
+- Added protected learning endpoints to list review items, list intents, and map questions into `sample_utterances` and/or `keywords`.
+- Added a Learning Queue tab to the dashboard for mapping unresolved customer questions without using raw SQL.
+- Improved ISP CS/Sales agent question matching by combining weighted keyword ranking, sample utterance similarity, token suffix expansion, and ISP-specific heuristic boosts.
+- Added sample utterances to the SQLite agent catalog so seeded customer questions can improve intent classification.
+- Added reply templates for detected but previously unmapped intents to reduce fallback "Maaf Kak" responses.
+- Added Indonesian slang normalization for common customer phrases such as `brp`, `berapaan`, `udah`, `gak`, and coverage synonyms.
+- Added unit tests for precise price, coverage, Sundanese package, and technician follow-up matching.
+
 2026-06-08
 - Migrated stock lookup from Google Sheets to SQLite by adding the `stock_products` table scoped per client.
 - Removed runtime Google Sheets logging/lookup from the chatbot flow; inbound and outbound chat data now stays in SQLite messages/conversations.

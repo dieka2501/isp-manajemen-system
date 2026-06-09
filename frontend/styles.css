@@ -175,6 +175,25 @@ body {
   color: var(--text);
 }
 
+.tab-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  min-width: 9.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.tab-button:hover {
+  transform: translateY(-1px);
+}
+
+.tab-button.is-active {
+  box-shadow: 0 10px 30px rgba(34, 211, 238, 0.18);
+}
+
 .info-chip {
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -230,6 +249,31 @@ body {
 .table-card.is-selected {
   border-color: rgba(34, 211, 238, 0.55);
   background: rgba(34, 211, 238, 0.1);
+}
+
+.learning-card {
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
+}
+
+.learning-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(34, 211, 238, 0.22);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.learning-card.is-selected {
+  border-color: rgba(34, 211, 238, 0.55);
+  background: rgba(34, 211, 238, 0.1);
+}
+
+.candidate-card {
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.035);
+  padding: 0.9rem;
 }
 
 .custom-scroll::-webkit-scrollbar {

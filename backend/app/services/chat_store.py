@@ -237,6 +237,33 @@ class SQLiteChatStore:
                     FOREIGN KEY (intent_code) REFERENCES intents (intent_code)
                 );
 
+                CREATE TABLE IF NOT EXISTS unprocessed_questions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    conversation_id INTEGER NOT NULL,
+                    message_id INTEGER NOT NULL UNIQUE,
+                    language TEXT NOT NULL,
+                    message_text TEXT NOT NULL,
+                    normalized_text TEXT,
+                    detected_intent_code TEXT,
+                    confidence REAL NOT NULL DEFAULT 0,
+                    reason TEXT NOT NULL,
+                    candidates TEXT,
+                    entities TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending'
+                        CHECK(status IN ('pending', 'mapped', 'ignored')),
+                    mapped_intent_code TEXT,
+                    mapped_type TEXT,
+                    reviewer_notes TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    resolved_at TEXT,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE,
+                    FOREIGN KEY (message_id) REFERENCES messages (id) ON DELETE CASCADE,
+                    FOREIGN KEY (mapped_intent_code) REFERENCES intents (intent_code)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_clients_account_id ON clients (account_id);
                 CREATE INDEX IF NOT EXISTS idx_devices_client_id ON devices (client_id);
                 CREATE INDEX IF NOT EXISTS idx_conversations_client_id ON conversations (client_id);
@@ -256,6 +283,10 @@ class SQLiteChatStore:
                     ON sample_utterances (intent_code, lang_code);
                 CREATE INDEX IF NOT EXISTS idx_normalization_rules_lang
                     ON normalization_rules (lang_code);
+                CREATE INDEX IF NOT EXISTS idx_unprocessed_questions_status
+                    ON unprocessed_questions (status, created_at);
+                CREATE INDEX IF NOT EXISTS idx_unprocessed_questions_client
+                    ON unprocessed_questions (client_id, status);
                 """
             )
             self._seed_intent_catalog(conn)
@@ -694,6 +725,19 @@ class SQLiteChatStore:
                 ORDER BY lang_code, source_text
                 """
             ).fetchall()
+            sample_utterances = conn.execute(
+                """
+                SELECT
+                    intent_code,
+                    lang_code,
+                    utterance,
+                    formality_level,
+                    expected_entities,
+                    notes
+                FROM sample_utterances
+                ORDER BY intent_code, lang_code, utterance
+                """
+            ).fetchall()
             mappings = conn.execute(
                 """
                 SELECT
@@ -712,8 +756,322 @@ class SQLiteChatStore:
             "intent_keywords": [dict(row) for row in intent_keywords],
             "entity_keywords": [dict(row) for row in entity_keywords],
             "normalization_rules": [dict(row) for row in normalization_rules],
+            "sample_utterances": [dict(row) for row in sample_utterances],
             "intent_mappings": [dict(row) for row in mappings],
         }
+
+    def list_intents_for_mapping(self) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    i.intent_code,
+                    i.intent_name,
+                    i.description,
+                    im.next_action,
+                    im.required_slots,
+                    im.optional_slots
+                FROM intents i
+                LEFT JOIN intent_mappings im ON im.intent_code = i.intent_code
+                WHERE i.intent_code != 'unknown'
+                ORDER BY i.intent_code
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def save_unprocessed_question(
+        self,
+        *,
+        stored_message: StoredIncomingMessage,
+        analysis: dict[str, Any],
+        reason: str,
+    ) -> None:
+        now = _utc_now()
+        intent = analysis.get("intent") or {}
+        normalized_text = _normalize_search_text(stored_message.message_text)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO unprocessed_questions (
+                    client_id,
+                    conversation_id,
+                    message_id,
+                    language,
+                    message_text,
+                    normalized_text,
+                    detected_intent_code,
+                    confidence,
+                    reason,
+                    candidates,
+                    entities,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(message_id) DO UPDATE SET
+                    language = excluded.language,
+                    message_text = excluded.message_text,
+                    normalized_text = excluded.normalized_text,
+                    detected_intent_code = excluded.detected_intent_code,
+                    confidence = excluded.confidence,
+                    reason = excluded.reason,
+                    candidates = excluded.candidates,
+                    entities = excluded.entities,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    stored_message.device.client_id,
+                    stored_message.conversation_id,
+                    stored_message.message_id,
+                    str(analysis.get("language") or "id"),
+                    stored_message.message_text,
+                    normalized_text,
+                    intent.get("intent_code"),
+                    float(intent.get("confidence") or 0),
+                    reason,
+                    json.dumps(analysis.get("candidates") or [], ensure_ascii=True),
+                    json.dumps(analysis.get("entities") or [], ensure_ascii=True),
+                    now,
+                    now,
+                ),
+            )
+
+    def list_unprocessed_questions(
+        self,
+        *,
+        status_filter: str = "pending",
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 200))
+        valid_statuses = {"pending", "mapped", "ignored", "all"}
+        if status_filter not in valid_statuses:
+            raise ValueError("Invalid status filter.")
+
+        where_clause = ""
+        params: list[Any] = []
+        if status_filter != "all":
+            where_clause = "WHERE uq.status = ?"
+            params.append(status_filter)
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    uq.id,
+                    uq.client_id,
+                    c.name AS client_name,
+                    a.slug AS account_slug,
+                    uq.conversation_id,
+                    uq.message_id,
+                    conv.sender_number,
+                    conv.sender_name,
+                    d.device_identifier,
+                    uq.language,
+                    uq.message_text,
+                    uq.normalized_text,
+                    uq.detected_intent_code,
+                    uq.confidence,
+                    uq.reason,
+                    uq.candidates,
+                    uq.entities,
+                    uq.status,
+                    uq.mapped_intent_code,
+                    uq.mapped_type,
+                    uq.reviewer_notes,
+                    uq.created_at,
+                    uq.updated_at,
+                    uq.resolved_at
+                FROM unprocessed_questions uq
+                JOIN clients c ON c.id = uq.client_id
+                JOIN accounts a ON a.id = c.account_id
+                JOIN conversations conv ON conv.id = uq.conversation_id
+                JOIN devices d ON d.id = conv.device_id
+                {where_clause}
+                ORDER BY uq.created_at DESC, uq.id DESC
+                LIMIT ?
+                """,
+                (*params, safe_limit),
+            ).fetchall()
+        return [self._decode_unprocessed_question_row(dict(row)) for row in rows]
+
+    def map_unprocessed_question(
+        self,
+        *,
+        question_id: int,
+        intent_code: str | None,
+        mapping_type: str,
+        keyword: str | None = None,
+        normalized_keyword: str | None = None,
+        weight: int = 4,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        mapping_type = mapping_type.strip().lower()
+        if mapping_type not in {"sample", "keyword", "both", "ignore"}:
+            raise ValueError("mapping_type must be sample, keyword, both, or ignore.")
+
+        safe_weight = max(1, min(weight, 10))
+        now = _utc_now()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, language, message_text, status
+                FROM unprocessed_questions
+                WHERE id = ?
+                """,
+                (question_id,),
+            ).fetchone()
+            if not row:
+                raise ValueError("Unprocessed question was not found.")
+
+            if mapping_type == "ignore":
+                conn.execute(
+                    """
+                    UPDATE unprocessed_questions
+                    SET
+                        status = 'ignored',
+                        mapped_intent_code = NULL,
+                        mapped_type = ?,
+                        reviewer_notes = ?,
+                        updated_at = ?,
+                        resolved_at = ?
+                    WHERE id = ?
+                    """,
+                    (mapping_type, notes, now, now, question_id),
+                )
+                return self._get_unprocessed_question(conn, question_id)
+
+            if not intent_code:
+                raise ValueError("intent_code is required for mapped questions.")
+
+            intent = conn.execute(
+                "SELECT intent_code FROM intents WHERE intent_code = ?",
+                (intent_code,),
+            ).fetchone()
+            if not intent:
+                raise ValueError(f"Intent `{intent_code}` was not found.")
+
+            lang_code = str(row["language"] or "id")
+            message_text = str(row["message_text"]).strip()
+            mapping_notes = notes or f"Learned from unprocessed question #{question_id}."
+
+            if mapping_type in {"sample", "both"}:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO sample_utterances (
+                        intent_code,
+                        lang_code,
+                        utterance,
+                        formality_level,
+                        expected_entities,
+                        notes
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (intent_code, lang_code, message_text, "learned", "{}", mapping_notes),
+                )
+
+            if mapping_type in {"keyword", "both"}:
+                keyword_text = (keyword or message_text).strip()
+                normalized_text = (normalized_keyword or _normalize_search_text(keyword_text)).strip()
+                if not keyword_text:
+                    raise ValueError("keyword cannot be empty.")
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO keywords (
+                        intent_code,
+                        lang_code,
+                        keyword,
+                        normalized_keyword,
+                        formality_level,
+                        weight,
+                        notes
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        intent_code,
+                        lang_code,
+                        keyword_text,
+                        normalized_text,
+                        "learned",
+                        safe_weight,
+                        mapping_notes,
+                    ),
+                )
+
+            conn.execute(
+                """
+                UPDATE unprocessed_questions
+                SET
+                    status = 'mapped',
+                    mapped_intent_code = ?,
+                    mapped_type = ?,
+                    reviewer_notes = ?,
+                    updated_at = ?,
+                    resolved_at = ?
+                WHERE id = ?
+                """,
+                (intent_code, mapping_type, notes, now, now, question_id),
+            )
+            return self._get_unprocessed_question(conn, question_id)
+
+    def _get_unprocessed_question(
+        self,
+        conn: sqlite3.Connection,
+        question_id: int,
+    ) -> dict[str, Any]:
+        row = conn.execute(
+            """
+            SELECT
+                uq.id,
+                uq.client_id,
+                c.name AS client_name,
+                a.slug AS account_slug,
+                uq.conversation_id,
+                uq.message_id,
+                conv.sender_number,
+                conv.sender_name,
+                d.device_identifier,
+                uq.language,
+                uq.message_text,
+                uq.normalized_text,
+                uq.detected_intent_code,
+                uq.confidence,
+                uq.reason,
+                uq.candidates,
+                uq.entities,
+                uq.status,
+                uq.mapped_intent_code,
+                uq.mapped_type,
+                uq.reviewer_notes,
+                uq.created_at,
+                uq.updated_at,
+                uq.resolved_at
+            FROM unprocessed_questions uq
+            JOIN clients c ON c.id = uq.client_id
+            JOIN accounts a ON a.id = c.account_id
+            JOIN conversations conv ON conv.id = uq.conversation_id
+            JOIN devices d ON d.id = conv.device_id
+            WHERE uq.id = ?
+            """,
+            (question_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("Unprocessed question was not found.")
+        return self._decode_unprocessed_question_row(dict(row))
+
+    def _decode_unprocessed_question_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        for key in ("candidates", "entities"):
+            value = row.get(key)
+            if not value:
+                row[key] = []
+                continue
+            try:
+                decoded = json.loads(str(value))
+            except json.JSONDecodeError:
+                decoded = []
+            row[key] = decoded if isinstance(decoded, list) else []
+        return row
 
     def list_stock_products(
         self,

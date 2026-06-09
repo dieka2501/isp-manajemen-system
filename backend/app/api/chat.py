@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
+from app.services.dashboard_auth import DashboardAuthService
 from app.services.chat_store import SQLiteChatStore
 from app.services.isp_agent import ISPCSAgent
 
@@ -42,8 +43,21 @@ class AgentPreviewRequest(BaseModel):
     message: str = Field(min_length=1)
 
 
+class LearningMapRequest(BaseModel):
+    intent_code: str | None = None
+    mapping_type: str
+    keyword: str | None = None
+    normalized_keyword: str | None = None
+    weight: int = Field(default=4, ge=1, le=10)
+    notes: str | None = None
+
+
 def _store() -> SQLiteChatStore:
     return SQLiteChatStore(get_settings())
+
+
+def _require_dashboard_auth(request: Request) -> None:
+    DashboardAuthService(get_settings()).require_auth(request)
 
 
 @chat_router.get("/accounts")
@@ -145,6 +159,49 @@ def upsert_stock_product(payload: StockProductUpsertRequest) -> dict[str, object
 def preview_agent_reply(payload: AgentPreviewRequest) -> dict[str, object]:
     store = _store()
     return {"item": ISPCSAgent(store.get_intent_agent_catalog()).answer(payload.message).as_dict()}
+
+
+@chat_router.get("/learning/intents", dependencies=[Depends(_require_dashboard_auth)])
+def list_learning_intents() -> dict[str, object]:
+    return {"items": _store().list_intents_for_mapping()}
+
+
+@chat_router.get("/learning/unprocessed", dependencies=[Depends(_require_dashboard_auth)])
+def list_learning_unprocessed(
+    status_filter: str = Query(default="pending", alias="status"),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict[str, object]:
+    try:
+        items = _store().list_unprocessed_questions(
+            status_filter=status_filter,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return {"items": items}
+
+
+@chat_router.post(
+    "/learning/unprocessed/{question_id}/map",
+    dependencies=[Depends(_require_dashboard_auth)],
+)
+def map_learning_unprocessed(
+    question_id: int,
+    payload: LearningMapRequest,
+) -> dict[str, object]:
+    try:
+        item = _store().map_unprocessed_question(
+            question_id=question_id,
+            intent_code=payload.intent_code,
+            mapping_type=payload.mapping_type,
+            keyword=payload.keyword,
+            normalized_keyword=payload.normalized_keyword,
+            weight=payload.weight,
+            notes=payload.notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return {"item": item}
 
 
 @chat_router.get("/conversations")

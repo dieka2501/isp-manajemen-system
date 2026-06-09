@@ -92,6 +92,7 @@ Database SQLite akan otomatis dibuat saat app start dan menyimpan:
 - `conversations`
 - `messages`
 - `stock_products`
+- `unprocessed_questions`
 - `intents`
 - `languages`
 - `keywords`
@@ -143,9 +144,28 @@ POST /api/v1/chat/devices
 GET  /api/v1/chat/stock-products
 POST /api/v1/chat/stock-products
 POST /api/v1/chat/agent/preview
+GET  /api/v1/chat/learning/intents
+GET  /api/v1/chat/learning/unprocessed
+POST /api/v1/chat/learning/unprocessed/{question_id}/map
 GET  /api/v1/chat/conversations
 GET  /api/v1/chat/conversations/{conversation_id}/messages
 ```
+
+## Learning Queue untuk Pertanyaan yang Belum Terproses
+
+Saat webhook menerima pesan dan agent menghasilkan intent `unknown` atau confidence
+di bawah ambang aman, pesan tersebut tetap dibalas sesuai flow saat ini, tetapi
+juga disalin ke tabel `unprocessed_questions`. Dashboard di
+`http://127.0.0.1:8000/sqlexplorer` menampilkan tab **Learning Queue** untuk:
+
+1. Melihat pertanyaan customer yang belum dipahami native system.
+2. Memilih intent yang benar.
+3. Menyimpan mapping sebagai `sample_utterance`, `keyword`, atau keduanya.
+4. Mengabaikan pertanyaan yang memang di luar scope.
+
+Mapping yang disimpan langsung masuk SQLite (`sample_utterances` dan/atau
+`keywords`) sehingga agent berikutnya bisa memakai data native sebelum perlu
+fallback ke API OpenAI.
 
 Contoh alur setup:
 
