@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SQLite Explorer Dashboard</title>
+    <title>ISP Operations Dashboard</title>
     <meta
       name="description"
       content="Explore SQLite files, inspect tables, and run read-only queries from a dashboard."
@@ -21,11 +21,11 @@
     <div id="authGate" class="auth-gate hidden">
       <div class="auth-card glass-panel">
         <div class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.35em] text-cyan-200/80">
-          SQL Explorer Login
+          Operations Login
         </div>
         <h1 class="mt-4 text-3xl font-semibold tracking-tight text-white">Enter dashboard password</h1>
         <p class="mt-2 text-sm leading-6 text-slate-300">
-          Use the `DASHBOARD_SECRET` value from the backend environment to unlock the SQLite explorer.
+          Use the `DASHBOARD_SECRET` value from the backend environment to unlock the operations dashboard.
         </p>
         <form id="loginForm" class="mt-6 space-y-4">
           <label class="space-y-2 block">
@@ -47,15 +47,19 @@
       <header class="glass-panel hero-panel flex flex-col gap-5 p-6 lg:flex-row lg:items-end lg:justify-between">
         <div class="space-y-3">
           <div class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.35em] text-cyan-200/80">
-            SQLite Explorer
+            ISP Operations
           </div>
           <div class="space-y-2">
             <h1 class="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-              Explore SQLite data with a fast, readable dashboard.
+              Review chats, teach intents, and inspect SQLite data.
             </h1>
             <p class="max-w-3xl text-sm leading-6 text-slate-300">
-              Pick a configured file, inspect its tables, and run read-only SQL queries without leaving the browser.
+              Map unanswered customer questions into native intent data so the system can answer more before using OpenAI APIs.
             </p>
+          </div>
+          <div class="flex flex-wrap gap-2 pt-2">
+            <button id="learningTab" class="tab-button is-active" type="button">Learning Queue</button>
+            <button id="explorerTab" class="tab-button" type="button">SQLite Explorer</button>
           </div>
         </div>
         <div class="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200">
@@ -67,6 +71,118 @@
         </div>
       </header>
 
+      <section id="learningView" class="grid gap-6 lg:grid-cols-[380px_1fr]">
+        <aside class="glass-panel flex min-h-[680px] flex-col overflow-hidden">
+          <div class="border-b border-white/10 p-5">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <h2 class="text-lg font-semibold text-white">Unprocessed Questions</h2>
+                <p id="learningCount" class="text-sm text-slate-400">No queue loaded.</p>
+              </div>
+              <button id="refreshLearningButton" class="action-button action-secondary" type="button">Refresh</button>
+            </div>
+            <div class="mt-4 grid gap-3 sm:grid-cols-[1fr_110px]">
+              <label class="space-y-2">
+                <span class="section-label">Status</span>
+                <select id="learningStatusFilter" class="control-input">
+                  <option value="pending">Pending</option>
+                  <option value="mapped">Mapped</option>
+                  <option value="ignored">Ignored</option>
+                  <option value="all">All</option>
+                </select>
+              </label>
+              <label class="space-y-2">
+                <span class="section-label">Limit</span>
+                <input id="learningLimitInput" class="control-input" type="number" min="1" max="200" value="50" />
+              </label>
+            </div>
+          </div>
+          <div id="learningList" class="custom-scroll flex-1 overflow-auto p-3"></div>
+        </aside>
+
+        <section class="space-y-6 min-w-0">
+          <div class="glass-panel p-5">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h2 id="learningDetailTitle" class="text-lg font-semibold text-white">Select a question</h2>
+                <p id="learningDetailMeta" class="mt-1 text-sm text-slate-400">
+                  Pick a pending customer question from the queue to map it into native intent data.
+                </p>
+              </div>
+              <span id="learningStatusBadge" class="status-pill status-idle">Waiting</span>
+            </div>
+            <div id="learningMessageBox" class="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4 text-base leading-7 text-white">
+              No question selected.
+            </div>
+            <div class="mt-4 grid gap-3 md:grid-cols-3">
+              <div class="info-chip">
+                <div class="section-label">Reason</div>
+                <div id="learningReason" class="mt-2 text-sm text-slate-200">-</div>
+              </div>
+              <div class="info-chip">
+                <div class="section-label">Detected</div>
+                <div id="learningDetected" class="mt-2 text-sm text-slate-200">-</div>
+              </div>
+              <div class="info-chip">
+                <div class="section-label">Sender</div>
+                <div id="learningSender" class="mt-2 text-sm text-slate-200">-</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-panel p-5">
+            <h2 class="text-lg font-semibold text-white">Map Question</h2>
+            <div class="mt-4 grid gap-4 lg:grid-cols-2">
+              <label class="space-y-2">
+                <span class="section-label">Intent</span>
+                <select id="mappingIntentSelect" class="control-input"></select>
+              </label>
+              <label class="space-y-2">
+                <span class="section-label">Mapping type</span>
+                <select id="mappingTypeSelect" class="control-input">
+                  <option value="sample">Sample utterance</option>
+                  <option value="keyword">Keyword</option>
+                  <option value="both">Sample + keyword</option>
+                  <option value="ignore">Ignore</option>
+                </select>
+              </label>
+              <label class="space-y-2">
+                <span class="section-label">Keyword text</span>
+                <input id="mappingKeywordInput" class="control-input" type="text" placeholder="Optional, for keyword/both" />
+              </label>
+              <label class="space-y-2">
+                <span class="section-label">Normalized keyword</span>
+                <input id="mappingNormalizedInput" class="control-input" type="text" placeholder="Optional normalized form" />
+              </label>
+              <label class="space-y-2">
+                <span class="section-label">Weight</span>
+                <input id="mappingWeightInput" class="control-input" type="number" min="1" max="10" value="4" />
+              </label>
+              <label class="space-y-2">
+                <span class="section-label">Notes</span>
+                <input id="mappingNotesInput" class="control-input" type="text" placeholder="Why this mapping is correct" />
+              </label>
+            </div>
+            <div class="mt-4 flex flex-wrap gap-3">
+              <button id="saveMappingButton" class="action-button action-primary" type="button">Save mapping</button>
+              <button id="previewLearningButton" class="action-button action-secondary" type="button">Preview selected</button>
+            </div>
+            <div id="mappingStatus" class="mt-4 text-sm text-slate-400">Select a question to begin.</div>
+          </div>
+
+          <div class="glass-panel overflow-hidden">
+            <div class="border-b border-white/10 p-5">
+              <h2 class="text-lg font-semibold text-white">Candidates & Preview</h2>
+              <p class="text-sm text-slate-400">Use this to see why the native system missed or barely matched the message.</p>
+            </div>
+            <div id="learningCandidates" class="custom-scroll max-h-[360px] overflow-auto p-5 text-sm text-slate-300">
+              No candidates loaded.
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section id="explorerView" class="hidden space-y-6">
       <section class="glass-panel p-5">
         <div class="grid gap-4 lg:grid-cols-[1.2fr_1.2fr_auto] lg:items-end">
           <label class="space-y-2">
@@ -186,6 +302,7 @@
           </div>
         </section>
       </main>
+      </section>
       </div>
     </div>
 

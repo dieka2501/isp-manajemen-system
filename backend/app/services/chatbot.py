@@ -61,6 +61,13 @@ class ISPCSChatService:
             }
 
         agent_response = ISPCSAgent(self.store.get_intent_agent_catalog()).answer(message_text)
+        review_reason = self._learning_review_reason(agent_response)
+        if review_reason:
+            self.store.save_unprocessed_question(
+                stored_message=stored_message,
+                analysis=agent_response.as_dict(),
+                reason=review_reason,
+            )
         logger.info(
             "Incoming chat saved conversation_id=%s device=%s sender=%s intent=%s confidence=%s entities=%s",
             stored_message.conversation_id,
@@ -131,3 +138,10 @@ class ISPCSChatService:
             "send_error": send_error,
             "skip_reason": None,
         }
+
+    def _learning_review_reason(self, agent_response: Any) -> str | None:
+        if agent_response.intent.intent_code == "unknown":
+            return "unknown_intent"
+        if agent_response.intent.confidence < 0.35:
+            return "low_confidence"
+        return None

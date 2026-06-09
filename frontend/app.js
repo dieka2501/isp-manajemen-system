@@ -8,11 +8,19 @@ const state = {
   loading: false,
   authenticated: false,
   secretConfigured: false,
+  activeView: "learning",
+  learningItems: [],
+  learningIntents: [],
+  selectedLearningId: null,
 };
 
 const el = {
   authGate: document.getElementById("authGate"),
   dashboardShell: document.getElementById("dashboardShell"),
+  learningTab: document.getElementById("learningTab"),
+  explorerTab: document.getElementById("explorerTab"),
+  learningView: document.getElementById("learningView"),
+  explorerView: document.getElementById("explorerView"),
   loginForm: document.getElementById("loginForm"),
   passwordInput: document.getElementById("passwordInput"),
   loginMessage: document.getElementById("loginMessage"),
@@ -36,6 +44,28 @@ const el = {
   resultsTableContainer: document.getElementById("resultsTableContainer"),
   connectionStatus: document.getElementById("connectionStatus"),
   logoutButton: document.getElementById("logoutButton"),
+  refreshLearningButton: document.getElementById("refreshLearningButton"),
+  learningStatusFilter: document.getElementById("learningStatusFilter"),
+  learningLimitInput: document.getElementById("learningLimitInput"),
+  learningList: document.getElementById("learningList"),
+  learningCount: document.getElementById("learningCount"),
+  learningDetailTitle: document.getElementById("learningDetailTitle"),
+  learningDetailMeta: document.getElementById("learningDetailMeta"),
+  learningStatusBadge: document.getElementById("learningStatusBadge"),
+  learningMessageBox: document.getElementById("learningMessageBox"),
+  learningReason: document.getElementById("learningReason"),
+  learningDetected: document.getElementById("learningDetected"),
+  learningSender: document.getElementById("learningSender"),
+  mappingIntentSelect: document.getElementById("mappingIntentSelect"),
+  mappingTypeSelect: document.getElementById("mappingTypeSelect"),
+  mappingKeywordInput: document.getElementById("mappingKeywordInput"),
+  mappingNormalizedInput: document.getElementById("mappingNormalizedInput"),
+  mappingWeightInput: document.getElementById("mappingWeightInput"),
+  mappingNotesInput: document.getElementById("mappingNotesInput"),
+  saveMappingButton: document.getElementById("saveMappingButton"),
+  previewLearningButton: document.getElementById("previewLearningButton"),
+  mappingStatus: document.getElementById("mappingStatus"),
+  learningCandidates: document.getElementById("learningCandidates"),
 };
 
 const STORAGE_KEYS = {
@@ -117,6 +147,25 @@ async function api(path, options = {}) {
   return data;
 }
 
+async function chatApi(path, options = {}) {
+  const response = await fetch(`/api/v1/chat${path}`, {
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+    ...options,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (response.status === 401) {
+      showAuthGate("Your session expired or login is required. Please sign in again.");
+    }
+    throw new Error(data.detail || `Request failed with status ${response.status}`);
+  }
+  return data;
+}
+
 function showAuthGate(message) {
   state.authenticated = false;
   el.authGate.classList.remove("hidden");
@@ -140,6 +189,14 @@ function setCurrentSource(path) {
   persistPreferences();
 }
 
+function switchView(view) {
+  state.activeView = view;
+  el.learningView.classList.toggle("hidden", view !== "learning");
+  el.explorerView.classList.toggle("hidden", view !== "explorer");
+  el.learningTab.classList.toggle("is-active", view === "learning");
+  el.explorerTab.classList.toggle("is-active", view === "explorer");
+}
+
 async function checkAuth() {
   el.loginMessage.textContent = "Checking login status...";
   const data = await api("/auth/status");
@@ -158,6 +215,180 @@ async function checkAuth() {
 
   showAuthGate("Enter the dashboard password to continue.");
   return false;
+}
+
+function selectedLearningItem() {
+  return state.learningItems.find((item) => item.id === state.selectedLearningId) || null;
+}
+
+function renderLearningIntents() {
+  el.mappingIntentSelect.innerHTML = state.learningIntents
+    .map((intent) => {
+      return `<option value="${escapeHtml(intent.intent_code)}">${escapeHtml(intent.intent_code)} - ${escapeHtml(intent.intent_name)}</option>`;
+    })
+    .join("");
+}
+
+function renderLearningList() {
+  el.learningCount.textContent = `${state.learningItems.length} item(s)`;
+  el.learningList.innerHTML = state.learningItems.length
+    ? state.learningItems
+        .map((item) => {
+          const selected = item.id === state.selectedLearningId;
+          const detected = item.detected_intent_code || "unknown";
+          const confidence = Math.round(Number(item.confidence || 0) * 100);
+          return `
+            <button class="learning-card w-full text-left p-4 ${selected ? "is-selected" : ""}" data-learning-id="${item.id}">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="line-clamp-2 text-sm font-semibold text-white">${escapeHtml(item.message_text)}</div>
+                  <div class="mt-2 text-xs text-slate-400">${escapeHtml(item.sender_name || item.sender_number || "Unknown sender")}</div>
+                </div>
+                <span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-300">${escapeHtml(item.status)}</span>
+              </div>
+              <div class="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+                <span>${escapeHtml(item.reason)}</span>
+                <span>${escapeHtml(detected)} ${confidence}%</span>
+                <span>${escapeHtml(item.language)}</span>
+              </div>
+            </button>
+          `;
+        })
+        .join("")
+    : `<div class="p-5 text-sm text-slate-400">No questions found for this filter.</div>`;
+}
+
+function renderLearningDetail() {
+  const item = selectedLearningItem();
+  if (!item) {
+    el.learningDetailTitle.textContent = "Select a question";
+    el.learningDetailMeta.textContent = "Pick a pending customer question from the queue to map it into native intent data.";
+    el.learningStatusBadge.textContent = "Waiting";
+    el.learningStatusBadge.className = "status-pill status-idle";
+    el.learningMessageBox.textContent = "No question selected.";
+    el.learningReason.textContent = "-";
+    el.learningDetected.textContent = "-";
+    el.learningSender.textContent = "-";
+    el.mappingKeywordInput.value = "";
+    el.mappingNormalizedInput.value = "";
+    el.mappingNotesInput.value = "";
+    el.learningCandidates.textContent = "No candidates loaded.";
+    el.mappingStatus.textContent = "Select a question to begin.";
+    return;
+  }
+
+  el.learningDetailTitle.textContent = `Question #${item.id}`;
+  el.learningDetailMeta.textContent = `${item.client_name} | ${item.device_identifier} | ${item.created_at}`;
+  el.learningStatusBadge.textContent = item.status;
+  el.learningStatusBadge.className =
+    "status-pill " + (item.status === "pending" ? "status-loading" : item.status === "mapped" ? "status-success" : "status-idle");
+  el.learningMessageBox.textContent = item.message_text;
+  el.learningReason.textContent = item.reason;
+  el.learningDetected.textContent = `${item.detected_intent_code || "unknown"} (${Math.round(Number(item.confidence || 0) * 100)}%)`;
+  el.learningSender.textContent = item.sender_name || item.sender_number || "-";
+  el.mappingKeywordInput.value = item.normalized_text || item.message_text;
+  el.mappingNormalizedInput.value = item.normalized_text || "";
+  el.mappingNotesInput.value = `Mapped from question #${item.id}`;
+  if (item.mapped_intent_code) {
+    el.mappingIntentSelect.value = item.mapped_intent_code;
+  }
+  renderLearningCandidates(item);
+  el.mappingStatus.textContent = "Choose an intent and save mapping.";
+}
+
+function renderLearningCandidates(item) {
+  const candidates = item.candidates || [];
+  const entities = item.entities || [];
+  const candidateHtml = candidates.length
+    ? candidates
+        .map((candidate) => {
+          return `
+            <div class="candidate-card">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="font-semibold text-white">${escapeHtml(candidate.intent_code)}</div>
+                <span class="text-xs text-slate-400">${Math.round(Number(candidate.confidence || 0) * 100)}% | score ${escapeHtml(candidate.score)}</span>
+              </div>
+              <div class="mt-2 text-xs leading-5 text-slate-400">${escapeHtml((candidate.matched_keywords || []).join(", ") || "No keywords")}</div>
+            </div>
+          `;
+        })
+        .join("")
+    : `<div class="text-sm text-slate-400">No native candidates were found.</div>`;
+  const entityHtml = entities.length
+    ? `<div class="mt-4 text-xs uppercase tracking-[0.22em] text-slate-500">Entities</div>
+       <div class="mt-2 flex flex-wrap gap-2">${entities
+         .map((entity) => `<span class="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">${escapeHtml(entity.entity_code)}: ${escapeHtml(entity.value)}</span>`)
+         .join("")}</div>`
+    : "";
+  el.learningCandidates.innerHTML = `<div class="space-y-3">${candidateHtml}</div>${entityHtml}`;
+}
+
+async function loadLearningIntents() {
+  const data = await chatApi("/learning/intents");
+  state.learningIntents = data.items || [];
+  renderLearningIntents();
+}
+
+async function loadLearningQueue() {
+  const status = el.learningStatusFilter.value || "pending";
+  const limit = Number.parseInt(el.learningLimitInput.value, 10) || 50;
+  el.mappingStatus.textContent = "Loading learning queue...";
+  const data = await chatApi(`/learning/unprocessed?status=${encodeURIComponent(status)}&limit=${limit}`);
+  state.learningItems = data.items || [];
+  if (!state.learningItems.some((item) => item.id === state.selectedLearningId)) {
+    state.selectedLearningId = state.learningItems[0]?.id || null;
+  }
+  renderLearningList();
+  renderLearningDetail();
+  el.mappingStatus.textContent = state.learningItems.length ? "Learning queue loaded." : "No items for this filter.";
+}
+
+async function saveLearningMapping() {
+  const item = selectedLearningItem();
+  if (!item) {
+    el.mappingStatus.textContent = "Select a question first.";
+    return;
+  }
+  const mappingType = el.mappingTypeSelect.value;
+  const body = {
+    mapping_type: mappingType,
+    intent_code: mappingType === "ignore" ? null : el.mappingIntentSelect.value,
+    keyword: el.mappingKeywordInput.value.trim() || null,
+    normalized_keyword: el.mappingNormalizedInput.value.trim() || null,
+    weight: Number.parseInt(el.mappingWeightInput.value, 10) || 4,
+    notes: el.mappingNotesInput.value.trim() || null,
+  };
+  el.saveMappingButton.disabled = true;
+  el.mappingStatus.textContent = "Saving mapping...";
+  try {
+    const data = await chatApi(`/learning/unprocessed/${item.id}/map`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    const updated = data.item;
+    state.learningItems = state.learningItems.map((current) => (current.id === updated.id ? updated : current));
+    renderLearningList();
+    renderLearningDetail();
+    el.mappingStatus.textContent = "Mapping saved. Native intent data is updated in SQLite.";
+  } finally {
+    el.saveMappingButton.disabled = false;
+  }
+}
+
+async function previewSelectedLearningItem() {
+  const item = selectedLearningItem();
+  if (!item) {
+    el.mappingStatus.textContent = "Select a question first.";
+    return;
+  }
+  el.mappingStatus.textContent = "Previewing selected question...";
+  const data = await chatApi("/agent/preview", {
+    method: "POST",
+    body: JSON.stringify({ message: item.message_text }),
+  });
+  const analysis = data.item || {};
+  el.learningCandidates.innerHTML = `<pre class="custom-scroll overflow-auto rounded-2xl bg-black/25 p-4 text-xs text-slate-200">${escapeHtml(JSON.stringify(analysis, null, 2))}</pre>`;
+  el.mappingStatus.textContent = `Preview: ${analysis.intent?.intent_code || "unknown"}`;
 }
 
 async function loginDashboard(event) {
@@ -182,6 +413,9 @@ async function loginDashboard(event) {
       showDashboard();
       el.passwordInput.value = "";
       setConnectionStatus("Dashboard unlocked.", "success");
+      switchView("learning");
+      await loadLearningIntents();
+      await loadLearningQueue();
       await loadSources();
       if (currentPath()) {
         await loadTables({ autoRunFirstTable: true });
@@ -219,6 +453,12 @@ async function logoutDashboard() {
     el.resultsEmptyState.classList.remove("hidden");
     el.resultsTableContainer.classList.add("hidden");
     el.resultsTableContainer.innerHTML = "";
+    state.learningItems = [];
+    state.learningIntents = [];
+    state.selectedLearningId = null;
+    el.learningList.innerHTML = "";
+    el.learningCount.textContent = "No queue loaded.";
+    renderLearningDetail();
     setStatus("Ready", "idle");
     setConnectionStatus("Signed out. Enter the dashboard password to continue.");
     showAuthGate("You have been signed out. Enter the dashboard password to continue.");
@@ -455,8 +695,49 @@ function bindEvents() {
     loginDashboard(event).catch(showError);
   });
 
+  el.learningTab.addEventListener("click", () => {
+    switchView("learning");
+    if (!state.learningIntents.length) {
+      loadLearningIntents().catch(showError);
+    }
+    loadLearningQueue().catch(showError);
+  });
+
+  el.explorerTab.addEventListener("click", () => {
+    switchView("explorer");
+  });
+
   el.logoutButton.addEventListener("click", () => {
     logoutDashboard().catch(showError);
+  });
+
+  el.refreshLearningButton.addEventListener("click", () => {
+    loadLearningQueue().catch(showError);
+  });
+
+  el.learningStatusFilter.addEventListener("change", () => {
+    state.selectedLearningId = null;
+    loadLearningQueue().catch(showError);
+  });
+
+  el.learningLimitInput.addEventListener("change", () => {
+    loadLearningQueue().catch(showError);
+  });
+
+  el.learningList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-learning-id]");
+    if (!button) return;
+    state.selectedLearningId = Number.parseInt(button.dataset.learningId, 10);
+    renderLearningList();
+    renderLearningDetail();
+  });
+
+  el.saveMappingButton.addEventListener("click", () => {
+    saveLearningMapping().catch(showError);
+  });
+
+  el.previewLearningButton.addEventListener("click", () => {
+    previewSelectedLearningItem().catch(showError);
   });
 
   el.sourceSelect.addEventListener("change", () => {
@@ -523,6 +804,9 @@ async function bootstrap() {
     if (!authenticated) {
       return;
     }
+    switchView("learning");
+    await loadLearningIntents();
+    await loadLearningQueue();
     await loadSources();
     if (currentPath()) {
       el.pathInput.value = currentPath();
