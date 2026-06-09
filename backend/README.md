@@ -102,15 +102,9 @@ Database SQLite akan otomatis dibuat saat app start dan menyimpan:
 - `normalization_rules`
 - `intent_mappings`
 
-Data referensi intent/entity otomatis di-seed dari file SQL/JSON di root repo:
-- `intents.sql`
-- `languages.sql`
-- `entities.sql`
-- `keywords.sql`
-- `entity_keywords.sql`
-- `sample_utterances.sql`
-- `normalization_rules.sql`
-- `intent_mapping.json`
+Data referensi intent/entity otomatis di-seed dari modul internal backend
+`app.services.intent_seed`, sehingga production deploy tidak membutuhkan file
+SQL/JSON di root repo.
 
 Desain ini mendukung:
 - multi account
@@ -172,7 +166,7 @@ Contoh alur setup:
 1. Buat account.
 2. Buat client di account tersebut dan simpan `api_token` client.
 3. Register device Fonnte ke client dengan `device_identifier` dan `outbound_token`.
-4. Pastikan database sudah ter-seed dengan intent/entity dari file SQL/JSON.
+4. Pastikan database sudah ter-seed otomatis saat backend start.
 5. Arahkan webhook Fonnte ke endpoint backend.
 6. Saat chat masuk, agent akan membaca intent dari SQLite dan membalas sebagai CS/Sales ISP.
 
