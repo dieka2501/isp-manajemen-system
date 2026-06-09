@@ -694,6 +694,19 @@ class SQLiteChatStore:
                 ORDER BY lang_code, source_text
                 """
             ).fetchall()
+            sample_utterances = conn.execute(
+                """
+                SELECT
+                    intent_code,
+                    lang_code,
+                    utterance,
+                    formality_level,
+                    expected_entities,
+                    notes
+                FROM sample_utterances
+                ORDER BY intent_code, lang_code, utterance
+                """
+            ).fetchall()
             mappings = conn.execute(
                 """
                 SELECT
@@ -712,6 +725,7 @@ class SQLiteChatStore:
             "intent_keywords": [dict(row) for row in intent_keywords],
             "entity_keywords": [dict(row) for row in entity_keywords],
             "normalization_rules": [dict(row) for row in normalization_rules],
+            "sample_utterances": [dict(row) for row in sample_utterances],
             "intent_mappings": [dict(row) for row in mappings],
         }
 
