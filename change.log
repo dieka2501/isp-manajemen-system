@@ -1,4 +1,5 @@
 2026-06-09
+- Removed tracked root SQL/schema seed artifacts from the repository and moved default intent/entity seed data into an internal backend Python module.
 - Added a learning queue for low-confidence or unknown chat messages so unprocessed customer questions can be reviewed before future OpenAI API fallback.
 - Added SQLite persistence for `unprocessed_questions` with mapping status, candidates, entities, and reviewer metadata.
 - Added protected learning endpoints to list review items, list intents, and map questions into `sample_utterances` and/or `keywords`.

@@ -9,17 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.core.config import PROJECT_ROOT, Settings
-
-INTENT_SEED_SQL_FILES = (
-    "intents.sql",
-    "languages.sql",
-    "entities.sql",
-    "keywords.sql",
-    "entity_keywords.sql",
-    "sample_utterances.sql",
-    "normalization_rules.sql",
-)
+from app.core.config import Settings
+from app.services.intent_seed import DEFAULT_INTENT_MAPPINGS, DEFAULT_INTENT_SEED
 
 
 def _utc_now() -> str:
@@ -292,28 +283,56 @@ class SQLiteChatStore:
             self._seed_intent_catalog(conn)
 
     def _seed_intent_catalog(self, conn: sqlite3.Connection) -> None:
-        for filename in INTENT_SEED_SQL_FILES:
-            seed_path = PROJECT_ROOT / filename
-            if not seed_path.exists():
+        seed_tables = {
+            "intents": ("intent_code", "intent_name", "description"),
+            "languages": ("lang_code", "lang_name"),
+            "entities": ("entity_code", "entity_name", "description"),
+            "keywords": (
+                "intent_code",
+                "lang_code",
+                "keyword",
+                "normalized_keyword",
+                "formality_level",
+                "weight",
+                "notes",
+            ),
+            "entity_keywords": (
+                "entity_code",
+                "lang_code",
+                "keyword",
+                "normalized_keyword",
+                "notes",
+            ),
+            "sample_utterances": (
+                "intent_code",
+                "lang_code",
+                "utterance",
+                "formality_level",
+                "expected_entities",
+                "notes",
+            ),
+            "normalization_rules": (
+                "lang_code",
+                "source_text",
+                "normalized_text",
+                "notes",
+            ),
+        }
+        for table_name, columns in seed_tables.items():
+            placeholders = ", ".join("?" for _ in columns)
+            column_sql = ", ".join(columns)
+            rows = DEFAULT_INTENT_SEED.get(table_name, [])
+            if not rows:
                 continue
-            script = seed_path.read_text(encoding="utf-8").strip()
-            if not script:
-                continue
-            conn.executescript(self._make_insert_script_idempotent(script))
+            conn.executemany(
+                f"""
+                INSERT OR IGNORE INTO {table_name} ({column_sql})
+                VALUES ({placeholders})
+                """,
+                [tuple(row.get(column) for column in columns) for row in rows],
+            )
 
-        mapping_path = PROJECT_ROOT / "intent_mapping.json"
-        if not mapping_path.exists():
-            return
-
-        raw_mapping = mapping_path.read_text(encoding="utf-8").strip()
-        if not raw_mapping:
-            return
-
-        mapping = json.loads(raw_mapping)
-        if not isinstance(mapping, dict):
-            raise ValueError("intent_mapping.json must contain a JSON object.")
-
-        for intent_code, item in mapping.items():
+        for intent_code, item in DEFAULT_INTENT_MAPPINGS.items():
             if not isinstance(item, dict):
                 continue
             conn.execute(
@@ -340,14 +359,6 @@ class SQLiteChatStore:
                     item.get("next_action"),
                 ),
             )
-
-    def _make_insert_script_idempotent(self, script: str) -> str:
-        return re.sub(
-            r"\bINSERT\s+INTO\b",
-            "INSERT OR IGNORE INTO",
-            script,
-            flags=re.IGNORECASE,
-        )
 
     def list_accounts(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
