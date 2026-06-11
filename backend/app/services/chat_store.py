@@ -5,7 +5,7 @@ import re
 import secrets
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -226,6 +226,21 @@ class SQLiteChatStore:
                     optional_slots TEXT NOT NULL DEFAULT '[]',
                     next_action TEXT,
                     FOREIGN KEY (intent_code) REFERENCES intents (intent_code)
+                );
+
+                CREATE TABLE IF NOT EXISTS conversation_states (
+                    conversation_id INTEGER PRIMARY KEY,
+                    current_intent TEXT,
+                    stage TEXT NOT NULL DEFAULT 'idle',
+                    waiting_for TEXT NOT NULL DEFAULT '[]',
+                    collected_slots TEXT NOT NULL DEFAULT '{}',
+                    last_bot_question TEXT,
+                    next_action TEXT,
+                    expires_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE,
+                    FOREIGN KEY (current_intent) REFERENCES intents (intent_code)
                 );
 
                 CREATE TABLE IF NOT EXISTS unprocessed_questions (
@@ -690,6 +705,90 @@ class SQLiteChatStore:
                 ),
             )
 
+    def get_conversation_state(self, conversation_id: int) -> dict[str, Any] | None:
+        now = _utc_now()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    conversation_id,
+                    current_intent,
+                    stage,
+                    waiting_for,
+                    collected_slots,
+                    last_bot_question,
+                    next_action,
+                    expires_at,
+                    created_at,
+                    updated_at
+                FROM conversation_states
+                WHERE conversation_id = ?
+                  AND (expires_at IS NULL OR expires_at > ?)
+                """,
+                (conversation_id, now),
+            ).fetchone()
+        if not row:
+            return None
+        item = dict(row)
+        item["waiting_for"] = self._decode_json_value(item.get("waiting_for"), [])
+        item["collected_slots"] = self._decode_json_value(item.get("collected_slots"), {})
+        return item
+
+    def upsert_conversation_state(
+        self,
+        *,
+        conversation_id: int,
+        state: dict[str, Any] | None,
+    ) -> None:
+        if not state:
+            return
+
+        waiting_for = state.get("waiting_for") or []
+        collected_slots = state.get("collected_slots") or {}
+        stage = str(state.get("stage") or ("collecting_slots" if waiting_for else "ready"))
+        now_dt = datetime.now(timezone.utc)
+        now = now_dt.isoformat()
+        expires_at = (now_dt + timedelta(hours=24)).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO conversation_states (
+                    conversation_id,
+                    current_intent,
+                    stage,
+                    waiting_for,
+                    collected_slots,
+                    last_bot_question,
+                    next_action,
+                    expires_at,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(conversation_id) DO UPDATE SET
+                    current_intent = excluded.current_intent,
+                    stage = excluded.stage,
+                    waiting_for = excluded.waiting_for,
+                    collected_slots = excluded.collected_slots,
+                    last_bot_question = excluded.last_bot_question,
+                    next_action = excluded.next_action,
+                    expires_at = excluded.expires_at,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    conversation_id,
+                    state.get("current_intent"),
+                    stage,
+                    json.dumps(waiting_for, ensure_ascii=True),
+                    json.dumps(collected_slots, ensure_ascii=True),
+                    state.get("last_bot_question"),
+                    state.get("next_action"),
+                    expires_at,
+                    now,
+                    now,
+                ),
+            )
+
     def get_intent_agent_catalog(self) -> dict[str, Any]:
         with self._connect() as conn:
             intents = conn.execute(
@@ -904,6 +1003,13 @@ class SQLiteChatStore:
                 (*params, safe_limit),
             ).fetchall()
         return [self._decode_unprocessed_question_row(dict(row)) for row in rows]
+
+    def get_unprocessed_question(self, question_id: int) -> dict[str, Any]:
+        with self._connect() as conn:
+            item = self._get_unprocessed_question(conn, question_id)
+        if not item:
+            raise ValueError("Unprocessed question was not found.")
+        return item
 
     def map_unprocessed_question(
         self,
@@ -1350,6 +1456,18 @@ class SQLiteChatStore:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
+
+    def _decode_json_value(self, value: Any, fallback: Any) -> Any:
+        if value is None:
+            return fallback
+        if isinstance(value, (dict, list)):
+            return value
+        if isinstance(value, str) and value.strip():
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return fallback
+        return fallback
 
     def _resolve_client(
         self,

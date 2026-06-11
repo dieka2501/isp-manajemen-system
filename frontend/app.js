@@ -63,6 +63,7 @@ const el = {
   mappingWeightInput: document.getElementById("mappingWeightInput"),
   mappingNotesInput: document.getElementById("mappingNotesInput"),
   saveMappingButton: document.getElementById("saveMappingButton"),
+  suggestMappingButton: document.getElementById("suggestMappingButton"),
   previewLearningButton: document.getElementById("previewLearningButton"),
   mappingStatus: document.getElementById("mappingStatus"),
   learningCandidates: document.getElementById("learningCandidates"),
@@ -395,6 +396,36 @@ async function previewSelectedLearningItem() {
   const analysis = data.item || {};
   el.learningCandidates.innerHTML = `<pre class="custom-scroll overflow-auto rounded-2xl bg-black/25 p-4 text-xs text-slate-200">${escapeHtml(JSON.stringify(analysis, null, 2))}</pre>`;
   el.mappingStatus.textContent = `Preview: ${analysis.intent?.intent_code || "unknown"}`;
+}
+
+async function suggestLearningMapping() {
+  const item = selectedLearningItem();
+  if (!item) {
+    el.mappingStatus.textContent = "Select a question first.";
+    return;
+  }
+  el.suggestMappingButton.disabled = true;
+  el.mappingStatus.textContent = "Asking OpenAI for a reviewable suggestion...";
+  try {
+    const data = await chatApi(`/learning/unprocessed/${item.id}/suggest`, {
+      method: "POST",
+    });
+    const suggestion = data.item || {};
+    if (suggestion.intent_code) {
+      el.mappingIntentSelect.value = suggestion.intent_code;
+    }
+    if (suggestion.mapping_type) {
+      el.mappingTypeSelect.value = suggestion.mapping_type;
+    }
+    el.mappingKeywordInput.value = suggestion.keyword || item.message_text || "";
+    el.mappingNormalizedInput.value = suggestion.normalized_keyword || "";
+    el.mappingWeightInput.value = suggestion.weight || 4;
+    el.mappingNotesInput.value = suggestion.reason || `OpenAI suggested mapping from question #${item.id}`;
+    el.learningCandidates.innerHTML = `<pre class="custom-scroll overflow-auto rounded-2xl bg-black/25 p-4 text-xs text-slate-200">${escapeHtml(JSON.stringify(suggestion, null, 2))}</pre>`;
+    el.mappingStatus.textContent = "OpenAI suggestion loaded. Review it before saving.";
+  } finally {
+    el.suggestMappingButton.disabled = false;
+  }
 }
 
 async function loginDashboard(event) {
@@ -740,6 +771,10 @@ function bindEvents() {
 
   el.saveMappingButton.addEventListener("click", () => {
     saveLearningMapping().catch(showError);
+  });
+
+  el.suggestMappingButton.addEventListener("click", () => {
+    suggestLearningMapping().catch(showError);
   });
 
   el.previewLearningButton.addEventListener("click", () => {

@@ -141,6 +141,7 @@ POST /api/v1/chat/agent/preview
 GET  /api/v1/chat/learning/intents
 GET  /api/v1/chat/learning/unprocessed
 POST /api/v1/chat/learning/unprocessed/{question_id}/map
+POST /api/v1/chat/learning/unprocessed/{question_id}/suggest
 GET  /api/v1/chat/conversations
 GET  /api/v1/chat/conversations/{conversation_id}/messages
 ```
@@ -160,6 +161,27 @@ juga disalin ke tabel `unprocessed_questions`. Dashboard di
 Mapping yang disimpan langsung masuk SQLite (`sample_utterances` dan/atau
 `keywords`) sehingga agent berikutnya bisa memakai data native sebelum perlu
 fallback ke API OpenAI.
+
+Jika `OPENAI_API_KEY` tersedia, dashboard juga bisa meminta saran mapping lewat
+tombol **Suggest with OpenAI**. Saran ini tidak auto-save; reviewer tetap perlu
+memeriksa intent, mapping type, keyword, normalized keyword, dan weight sebelum
+klik **Save mapping**. Model default adalah `gpt-4o-mini` dan bisa diganti lewat
+`OPENAI_MODEL`.
+
+## Memory Percakapan Native
+
+Agent menyimpan memory aktif per conversation di tabel `conversation_states`.
+Tabel `messages` tetap menjadi log webhook/inbound/outbound, sedangkan
+`conversation_states` menyimpan state terstruktur seperti `current_intent`,
+`waiting_for`, `collected_slots`, `last_bot_question`, dan `expires_at`.
+
+Dengan state ini, jawaban pendek seperti `Soreang` atau `Keluarga` bisa
+dipahami sebagai lanjutan dari pertanyaan bot sebelumnya, bukan selalu
+diklasifikasikan sebagai intent baru. Memory diperbarui saat agent menghasilkan
+`memory_update` dan kedaluwarsa 24 jam setelah update terakhir.
+
+Rancangan lengkap native LLM, memory, dan posisi OpenAI sebagai helper learning
+ditulis di [`docs/native-llm-memory.md`](docs/native-llm-memory.md).
 
 Contoh alur setup:
 

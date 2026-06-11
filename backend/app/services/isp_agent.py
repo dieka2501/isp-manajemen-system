@@ -149,6 +149,7 @@ class AgentResponse:
     entities: list[EntityMatch]
     missing_slots: list[str]
     reply_text: str
+    memory_update: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -158,6 +159,7 @@ class AgentResponse:
             "entities": [entity.as_dict() for entity in self.entities],
             "missing_slots": self.missing_slots,
             "reply_text": self.reply_text,
+            "memory_update": self.memory_update,
         }
 
 
@@ -187,15 +189,87 @@ class ISPCSAgent:
             default_weight=3,
         )
 
-    def answer(self, message_text: str) -> AgentResponse:
+    def answer(
+        self,
+        message_text: str,
+        conversation_state: dict[str, Any] | None = None,
+    ) -> AgentResponse:
         normalized_by_lang = self._normalize_by_language(message_text)
         language = self._detect_language(normalized_by_lang)
         normalized_message = normalized_by_lang[language]
+        state = conversation_state or {}
+        prior_slots = self._decode_slot_state(state.get("collected_slots"))
+        waiting_for = self._decode_waiting_for(state.get("waiting_for"))
+        entities = self._extract_entities(message_text, normalized_message, language)
+
+        if waiting_for:
+            memory_slots = self._extract_memory_slots(
+                message_text=message_text,
+                normalized_message=normalized_message,
+                waiting_for=waiting_for,
+                prior_slots=prior_slots,
+                entities=entities,
+            )
+            if memory_slots:
+                merged_slots = {**prior_slots, **memory_slots}
+                for slot_name, slot_value in memory_slots.items():
+                    entities.append(
+                        EntityMatch(
+                            entity_code=slot_name,
+                            entity_name=self._slot_label(slot_name),
+                            value=slot_value,
+                            normalized_value=normalize_text(slot_value),
+                            source="memory",
+                        )
+                    )
+                remaining_slots = [
+                    slot for slot in waiting_for if not str(merged_slots.get(slot) or "").strip()
+                ]
+                current_intent = str(state.get("current_intent") or "unknown")
+                intent = IntentMatch(
+                    intent_code=current_intent,
+                    intent_name=self.intent_names.get(current_intent, current_intent),
+                    score=12,
+                    confidence=0.9,
+                    matched_keywords=[f"memory:{slot}" for slot in memory_slots],
+                    next_action=str(state.get("next_action") or "") or None,
+                    required_slots=waiting_for,
+                    optional_slots=[],
+                )
+                reply_text = self._compose_memory_reply(
+                    current_intent=current_intent,
+                    filled_slots=memory_slots,
+                    remaining_slots=remaining_slots,
+                    collected_slots=merged_slots,
+                )
+                memory_update = self._build_memory_update(
+                    intent=intent,
+                    entities=entities,
+                    missing_slots=remaining_slots,
+                    collected_slots=merged_slots,
+                    reply_text=reply_text,
+                )
+                return AgentResponse(
+                    language=language,
+                    intent=intent,
+                    candidates=[intent],
+                    entities=entities,
+                    missing_slots=remaining_slots,
+                    reply_text=reply_text,
+                    memory_update=memory_update,
+                )
+
         candidates = self._rank_intents(normalized_message, language)
         intent = candidates[0] if candidates else self._unknown_intent()
-        entities = self._extract_entities(message_text, normalized_message, language)
         missing_slots = self._missing_slots(intent.required_slots, entities)
         reply_text = self._compose_reply(intent, entities, missing_slots)
+        memory_update = self._build_memory_update(
+            intent=intent,
+            entities=entities,
+            missing_slots=missing_slots,
+            collected_slots=prior_slots,
+            reply_text=reply_text,
+        )
 
         return AgentResponse(
             language=language,
@@ -204,6 +278,7 @@ class ISPCSAgent:
             entities=entities,
             missing_slots=missing_slots,
             reply_text=reply_text,
+            memory_update=memory_update,
         )
 
     def _normalize_by_language(self, message_text: str) -> dict[str, str]:
@@ -590,6 +665,237 @@ class ISPCSAgent:
     def _missing_slots(self, required_slots: list[str], entities: list[EntityMatch]) -> list[str]:
         entity_codes = {entity.entity_code for entity in entities}
         return [slot for slot in required_slots if slot not in entity_codes]
+
+    def _decode_waiting_for(self, value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(item) for item in value if str(item).strip()]
+        if isinstance(value, str) and value.strip():
+            try:
+                decoded = json.loads(value)
+            except json.JSONDecodeError:
+                return []
+            if isinstance(decoded, list):
+                return [str(item) for item in decoded if str(item).strip()]
+        return []
+
+    def _decode_slot_state(self, value: Any) -> dict[str, str]:
+        if isinstance(value, dict):
+            return {
+                str(key): str(slot_value)
+                for key, slot_value in value.items()
+                if str(slot_value).strip()
+            }
+        if isinstance(value, str) and value.strip():
+            try:
+                decoded = json.loads(value)
+            except json.JSONDecodeError:
+                return {}
+            if isinstance(decoded, dict):
+                return {
+                    str(key): str(slot_value)
+                    for key, slot_value in decoded.items()
+                    if str(slot_value).strip()
+                }
+        return {}
+
+    def _extract_memory_slots(
+        self,
+        *,
+        message_text: str,
+        normalized_message: str,
+        waiting_for: list[str],
+        prior_slots: dict[str, str],
+        entities: list[EntityMatch],
+    ) -> dict[str, str]:
+        filled: dict[str, str] = {}
+        filled.update(
+            {
+                entity.entity_code: entity.value
+                for entity in entities
+                if entity.entity_code in waiting_for and entity.value.strip()
+            }
+        )
+
+        if "phone_number" in waiting_for and "phone_number" not in filled:
+            match = re.search(r"(?:\+?62|0)?8\d{7,12}", message_text)
+            if match:
+                filled["phone_number"] = match.group(0)
+
+        parts = [part.strip() for part in re.split(r"[,;\n]+", message_text) if part.strip()]
+        if (
+            "customer_name" in waiting_for
+            and "customer_name" not in filled
+            and parts
+            and (len(parts) > 1 or "address" not in waiting_for)
+        ):
+            name_candidate = parts[0]
+            if not re.search(r"\d", name_candidate) and 2 <= len(name_candidate) <= 60:
+                filled["customer_name"] = name_candidate
+
+        if "usage_need" in waiting_for and "usage_need" not in filled:
+            usage_markers = {
+                "keluarga": "keluarga",
+                "rumah": "rumahan",
+                "gaming": "gaming",
+                "game": "gaming",
+                "kerja": "kerja dari rumah",
+                "wfh": "kerja dari rumah",
+                "sekolah": "sekolah",
+                "streaming": "streaming",
+                "ringan": "pemakaian ringan",
+            }
+            for marker, label in usage_markers.items():
+                if re.search(rf"\b{re.escape(marker)}\b", normalized_message):
+                    filled["usage_need"] = label
+                    break
+
+        address_slots = [slot for slot in ("address", "area") if slot in waiting_for]
+        if address_slots and not any(slot in filled for slot in address_slots):
+            address_value = self._infer_address_from_followup(
+                message_text,
+                normalized_message,
+                parts,
+            )
+            if address_value:
+                filled["address" if "address" in waiting_for else "area"] = address_value
+
+        if "package_name" in waiting_for and "package_name" not in filled:
+            if re.search(r"\b\d+\s*(?:mbps|mega|gbps)\b", message_text.lower()):
+                filled["package_name"] = message_text.strip()
+
+        return {
+            slot: value
+            for slot, value in filled.items()
+            if slot in waiting_for and str(value).strip() and not prior_slots.get(slot)
+        }
+
+    def _infer_address_from_followup(
+        self,
+        message_text: str,
+        normalized_message: str,
+        parts: list[str],
+    ) -> str | None:
+        if any(marker in normalized_message for marker in ("jalan", "jl", "alamat", "komplek", "blok")):
+            return message_text.strip()
+        if len(parts) >= 2:
+            last_part = parts[-1]
+            if not re.search(r"\d", last_part) and len(last_part) >= 3:
+                return last_part
+        if len(normalized_message.split()) <= 5 and not self._looks_like_question(normalized_message):
+            return message_text.strip()
+        return None
+
+    def _looks_like_question(self, normalized_message: str) -> bool:
+        markers = (
+            "apa",
+            "berapa",
+            "bisa",
+            "gimana",
+            "harga",
+            "paket",
+            "promo",
+            "qris",
+            "transfer",
+        )
+        return any(re.search(rf"\b{marker}\b", normalized_message) for marker in markers)
+
+    def _build_memory_update(
+        self,
+        *,
+        intent: IntentMatch,
+        entities: list[EntityMatch],
+        missing_slots: list[str],
+        collected_slots: dict[str, str],
+        reply_text: str,
+    ) -> dict[str, Any] | None:
+        if intent.intent_code == "unknown":
+            return None
+
+        slots = dict(collected_slots)
+        for entity in entities:
+            if entity.entity_code in {
+                "address",
+                "area",
+                "customer_name",
+                "phone_number",
+                "package_name",
+                "speed",
+                "usage_need",
+            }:
+                slots.setdefault(entity.entity_code, entity.value)
+
+        waiting_for = list(missing_slots)
+        if intent.next_action == "show_package_list":
+            waiting_for = [slot for slot in waiting_for if slot != "usage_need"]
+            if not slots.get("usage_need"):
+                waiting_for.append("usage_need")
+        if intent.intent_code == "choose_package":
+            for slot in ("customer_name", "phone_number", "address"):
+                if not slots.get(slot) and slot not in waiting_for:
+                    waiting_for.append(slot)
+
+        stage = "collecting_slots" if waiting_for else "ready"
+        return {
+            "current_intent": intent.intent_code,
+            "stage": stage,
+            "waiting_for": waiting_for,
+            "collected_slots": slots,
+            "last_bot_question": reply_text,
+            "next_action": intent.next_action,
+        }
+
+    def _compose_memory_reply(
+        self,
+        *,
+        current_intent: str,
+        filled_slots: dict[str, str],
+        remaining_slots: list[str],
+        collected_slots: dict[str, str],
+    ) -> str:
+        acknowledgements = []
+        if "customer_name" in filled_slots:
+            acknowledgements.append(f"nama {filled_slots['customer_name']}")
+        if "phone_number" in filled_slots:
+            acknowledgements.append(f"nomor {filled_slots['phone_number']}")
+        if "address" in filled_slots:
+            acknowledgements.append(f"alamat {filled_slots['address']}")
+        if "area" in filled_slots:
+            acknowledgements.append(f"area {filled_slots['area']}")
+        if "usage_need" in filled_slots:
+            acknowledgements.append(f"kebutuhan {filled_slots['usage_need']}")
+
+        opener = "Siap Kak"
+        if acknowledgements:
+            opener = f"Siap Kak, {' dan '.join(acknowledgements[:3])} saya catat."
+
+        if not remaining_slots:
+            if current_intent in {"ask_installation", "confirm_order", "choose_package"}:
+                return f"{opener} Datanya sudah cukup untuk kami bantu proses pengecekan coverage dan pemasangan."
+            if current_intent == "ask_package" and collected_slots.get("usage_need"):
+                return (
+                    f"{opener} Untuk kebutuhan {collected_slots['usage_need']}, "
+                    "nanti bisa kami arahkan ke paket rumahan yang stabil. Boleh lanjut kirim area pemasangannya?"
+                )
+            return f"{opener} Ada detail lain yang ingin Kakak tambahkan?"
+
+        requested = self._format_slot_request(remaining_slots)
+        return f"{opener} Mohon kirim {requested} agar prosesnya bisa dilanjutkan."
+
+    def _format_slot_request(self, slots: list[str]) -> str:
+        return ", ".join(self._slot_label(slot) for slot in slots)
+
+    def _slot_label(self, slot: str) -> str:
+        return {
+            "address": "alamat lengkap",
+            "area": "area pemasangan",
+            "customer_name": "nama pelanggan",
+            "phone_number": "nomor HP aktif",
+            "package_name": "paket yang dipilih",
+            "schedule_date": "tanggal pemasangan",
+            "schedule_time": "jam pemasangan",
+            "usage_need": "kebutuhan pemakaian",
+            "speed": "speed yang diminati",
+        }.get(slot, slot)
 
     def _compose_reply(
         self,

@@ -60,7 +60,11 @@ class ISPCSChatService:
                 "skip_reason": "empty_message_text",
             }
 
-        agent_response = ISPCSAgent(self.store.get_intent_agent_catalog()).answer(message_text)
+        conversation_state = self.store.get_conversation_state(stored_message.conversation_id)
+        agent_response = ISPCSAgent(self.store.get_intent_agent_catalog()).answer(
+            message_text,
+            conversation_state=conversation_state,
+        )
         review_reason = self._learning_review_reason(agent_response)
         if review_reason:
             self.store.save_unprocessed_question(
@@ -79,6 +83,10 @@ class ISPCSChatService:
         )
 
         reply_text = agent_response.reply_text
+        self.store.upsert_conversation_state(
+            conversation_id=stored_message.conversation_id,
+            state=agent_response.memory_update,
+        )
         send_result: dict[str, Any] | None = None
         send_error: str | None = None
 

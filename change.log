@@ -1,3 +1,11 @@
+2026-06-11
+- Added SQLite-backed native conversation memory through `conversation_states` so the ISP agent can continue slot collection across webhook messages.
+- Updated the CS/Sales agent to fill pending slots from follow-up messages before reclassifying them as new intents.
+- Added memory-aware replies for collected address, area, usage need, customer name, and phone number details.
+- Documented the native LLM memory architecture, OpenAI helper boundaries, and Redis deferral guidance.
+- Added unit tests for memory-based follow-up slot filling.
+- Added OpenAI Learning Queue suggestion support with `OPENAI_API_KEY`, default `OPENAI_MODEL=gpt-4o-mini`, a protected suggestion endpoint, and dashboard autofill.
+
 2026-06-09
 - Removed tracked root SQL/schema seed artifacts from the repository and moved default intent/entity seed data into an internal backend Python module.
 - Added a learning queue for low-confidence or unknown chat messages so unprocessed customer questions can be reviewed before future OpenAI API fallback.
