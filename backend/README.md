@@ -161,6 +161,21 @@ Mapping yang disimpan langsung masuk SQLite (`sample_utterances` dan/atau
 `keywords`) sehingga agent berikutnya bisa memakai data native sebelum perlu
 fallback ke API OpenAI.
 
+## Memory Percakapan Native
+
+Agent menyimpan memory aktif per conversation di tabel `conversation_states`.
+Tabel `messages` tetap menjadi log webhook/inbound/outbound, sedangkan
+`conversation_states` menyimpan state terstruktur seperti `current_intent`,
+`waiting_for`, `collected_slots`, `last_bot_question`, dan `expires_at`.
+
+Dengan state ini, jawaban pendek seperti `Soreang` atau `Keluarga` bisa
+dipahami sebagai lanjutan dari pertanyaan bot sebelumnya, bukan selalu
+diklasifikasikan sebagai intent baru. Memory diperbarui saat agent menghasilkan
+`memory_update` dan kedaluwarsa 24 jam setelah update terakhir.
+
+Rancangan lengkap native LLM, memory, dan posisi OpenAI sebagai helper learning
+ditulis di [`docs/native-llm-memory.md`](docs/native-llm-memory.md).
+
 Contoh alur setup:
 
 1. Buat account.

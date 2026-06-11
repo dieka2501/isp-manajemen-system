@@ -13,6 +13,7 @@ from app.services.isp_agent import ISPCSAgent
 
 def build_catalog() -> dict[str, list[dict[str, Any]]]:
     intents = [
+        ("ask_installation", "Tanya pemasangan"),
         ("ask_package", "Tanya paket internet"),
         ("ask_price", "Tanya harga"),
         ("ask_coverage", "Cek area jaringan"),
@@ -59,6 +60,14 @@ def build_catalog() -> dict[str, list[dict[str, Any]]]:
         ],
         "sample_utterances": [
             {
+                "intent_code": "ask_installation",
+                "lang_code": "id",
+                "utterance": "Saya mau pasang internet, bisa?",
+                "formality_level": "informal",
+                "expected_entities": "{}",
+                "notes": None,
+            },
+            {
                 "intent_code": "ask_package",
                 "lang_code": "su",
                 "utterance": "Paketna aya naon wae kang?",
@@ -84,6 +93,13 @@ def build_catalog() -> dict[str, list[dict[str, Any]]]:
             },
         ],
         "intent_mappings": [
+            {
+                "intent_code": "ask_installation",
+                "description": "Customer wants installation",
+                "required_slots": json.dumps(["address", "customer_name", "phone_number"]),
+                "optional_slots": json.dumps(["package_name", "speed"]),
+                "next_action": "ask_address_or_show_packages",
+            },
             {
                 "intent_code": "ask_price",
                 "description": "Customer asks price",
@@ -144,6 +160,38 @@ class ISPCSAgentTests(unittest.TestCase):
         response = self.agent.answer("teknisinya sudah sampai mana ya?")
 
         self.assertEqual(response.intent.intent_code, "follow_up_installation")
+        self.assertNotIn("Maaf Kak", response.reply_text)
+
+    def test_memory_fills_area_followup_before_reclassifying_intent(self) -> None:
+        first_response = self.agent.answer("Saya mau pasang internet, bisa?")
+
+        self.assertEqual(first_response.intent.intent_code, "ask_installation")
+        self.assertIn("address", first_response.memory_update["waiting_for"])
+
+        followup_response = self.agent.answer(
+            "Soreang",
+            conversation_state=first_response.memory_update,
+        )
+
+        self.assertEqual(followup_response.intent.intent_code, "ask_installation")
+        self.assertEqual(followup_response.memory_update["collected_slots"]["address"], "Soreang")
+        self.assertIn("nama pelanggan", followup_response.reply_text)
+
+    def test_memory_extracts_name_phone_and_address_from_combined_followup(self) -> None:
+        state = {
+            "current_intent": "ask_installation",
+            "stage": "collecting_slots",
+            "waiting_for": ["customer_name", "phone_number", "address"],
+            "collected_slots": {},
+            "next_action": "ask_address_or_show_packages",
+        }
+
+        response = self.agent.answer("Dikdik, 087777777, Bandung", conversation_state=state)
+
+        self.assertEqual(response.intent.intent_code, "ask_installation")
+        self.assertEqual(response.memory_update["collected_slots"]["customer_name"], "Dikdik")
+        self.assertEqual(response.memory_update["collected_slots"]["phone_number"], "087777777")
+        self.assertEqual(response.memory_update["collected_slots"]["address"], "Bandung")
         self.assertNotIn("Maaf Kak", response.reply_text)
 
 
