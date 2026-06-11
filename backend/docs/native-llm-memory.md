@@ -96,7 +96,34 @@ Siap Kak, alamat Soreang saya catat. Mohon kirim nama pelanggan, nomor HP aktif 
 
 ## Peran OpenAI
 
-OpenAI tidak perlu diberi akses raw SQL langsung. Jika nanti dipakai, berikan tool terbatas dari backend:
+OpenAI tidak diberi akses raw SQL langsung. Integrasi awal memakai
+`OPENAI_API_KEY` dan `OPENAI_MODEL` dengan default `gpt-4o-mini` untuk memberi
+saran Learning Queue yang tetap harus direview manusia.
+
+Endpoint awal:
+
+```text
+POST /api/v1/chat/learning/unprocessed/{question_id}/suggest
+```
+
+Endpoint ini mengirim konteks terbatas:
+
+- teks pertanyaan,
+- normalized text,
+- detected intent dan confidence,
+- candidates/entities dari native agent,
+- daftar intent yang tersedia.
+
+Ia mengembalikan:
+
+- `intent_code`,
+- `mapping_type`,
+- `keyword`,
+- `normalized_keyword`,
+- `weight`,
+- `reason`.
+
+Jika nanti diperluas, berikan tool terbatas dari backend:
 
 - `suggest_learning_mapping(message, candidates)`
 - `suggest_normalized_keyword(message, intent_catalog)`

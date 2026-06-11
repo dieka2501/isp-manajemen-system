@@ -1004,6 +1004,13 @@ class SQLiteChatStore:
             ).fetchall()
         return [self._decode_unprocessed_question_row(dict(row)) for row in rows]
 
+    def get_unprocessed_question(self, question_id: int) -> dict[str, Any]:
+        with self._connect() as conn:
+            item = self._get_unprocessed_question(conn, question_id)
+        if not item:
+            raise ValueError("Unprocessed question was not found.")
+        return item
+
     def map_unprocessed_question(
         self,
         *,

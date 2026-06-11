@@ -141,6 +141,7 @@ POST /api/v1/chat/agent/preview
 GET  /api/v1/chat/learning/intents
 GET  /api/v1/chat/learning/unprocessed
 POST /api/v1/chat/learning/unprocessed/{question_id}/map
+POST /api/v1/chat/learning/unprocessed/{question_id}/suggest
 GET  /api/v1/chat/conversations
 GET  /api/v1/chat/conversations/{conversation_id}/messages
 ```
@@ -160,6 +161,12 @@ juga disalin ke tabel `unprocessed_questions`. Dashboard di
 Mapping yang disimpan langsung masuk SQLite (`sample_utterances` dan/atau
 `keywords`) sehingga agent berikutnya bisa memakai data native sebelum perlu
 fallback ke API OpenAI.
+
+Jika `OPENAI_API_KEY` tersedia, dashboard juga bisa meminta saran mapping lewat
+tombol **Suggest with OpenAI**. Saran ini tidak auto-save; reviewer tetap perlu
+memeriksa intent, mapping type, keyword, normalized keyword, dan weight sebelum
+klik **Save mapping**. Model default adalah `gpt-4o-mini` dan bisa diganti lewat
+`OPENAI_MODEL`.
 
 ## Memory Percakapan Native
 

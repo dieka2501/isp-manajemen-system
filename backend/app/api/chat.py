@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.services.dashboard_auth import DashboardAuthService
 from app.services.chat_store import SQLiteChatStore
 from app.services.isp_agent import ISPCSAgent
+from app.services.openai_learning import OpenAILearningHelper
 
 chat_router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -202,6 +203,29 @@ def map_learning_unprocessed(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return {"item": item}
+
+
+@chat_router.post(
+    "/learning/unprocessed/{question_id}/suggest",
+    dependencies=[Depends(_require_dashboard_auth)],
+)
+def suggest_learning_mapping(question_id: int) -> dict[str, object]:
+    store = _store()
+    settings = get_settings()
+    try:
+        question = store.get_unprocessed_question(question_id)
+        suggestion = OpenAILearningHelper(settings).suggest_mapping(
+            question=question,
+            intents=store.list_intents_for_mapping(),
+        )
+    except ValueError as exc:
+        status_code = (
+            status.HTTP_503_SERVICE_UNAVAILABLE
+            if "OPENAI_API_KEY" in str(exc) or "OpenAI request failed" in str(exc)
+            else status.HTTP_422_UNPROCESSABLE_ENTITY
+        )
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return {"item": suggestion}
 
 
 @chat_router.get("/conversations")

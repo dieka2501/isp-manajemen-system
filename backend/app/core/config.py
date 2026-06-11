@@ -22,6 +22,13 @@ class Settings:
     fonnte_token: str = os.getenv("FONNTE_TOKEN", "")
     fonnte_default_country_code: str = os.getenv("FONNTE_DEFAULT_COUNTRY_CODE", "62")
     fonnte_webhook_secret: str = os.getenv("FONNTE_WEBHOOK_SECRET", "")
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    openai_responses_url: str = os.getenv(
+        "OPENAI_RESPONSES_URL",
+        "https://api.openai.com/v1/responses",
+    )
+    openai_timeout_seconds: int = int(os.getenv("OPENAI_TIMEOUT_SECONDS", "20"))
     chat_database_path: str = os.getenv(
         "CHAT_DATABASE_PATH",
         str(BASE_DIR / "data" / "chat.sqlite3"),
