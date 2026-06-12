@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config import Settings
-from app.services.intent_seed import DEFAULT_INTENT_MAPPINGS, DEFAULT_INTENT_SEED
+from app.services.intent_seed import (
+    DEFAULT_INTENT_MAPPINGS,
+    DEFAULT_INTENT_SEED,
+    DEFAULT_INTERNET_PACKAGES,
+)
 
 
 def _utc_now() -> str:
@@ -150,6 +154,23 @@ class SQLiteChatStore:
                     UNIQUE (client_id, product_name, product_type)
                 );
 
+                CREATE TABLE IF NOT EXISTS internet_packages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    package_code TEXT NOT NULL UNIQUE,
+                    package_name TEXT NOT NULL,
+                    speed_mbps INTEGER NOT NULL,
+                    monthly_price INTEGER NOT NULL,
+                    installation_fee INTEGER NOT NULL DEFAULT 0,
+                    installation_fee_label TEXT,
+                    areas TEXT NOT NULL DEFAULT '[]',
+                    benefits TEXT NOT NULL DEFAULT '[]',
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    sort_order INTEGER NOT NULL DEFAULT 100,
+                    notes TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS intents (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     intent_code TEXT NOT NULL UNIQUE,
@@ -279,6 +300,8 @@ class SQLiteChatStore:
                     ON stock_products (client_id);
                 CREATE INDEX IF NOT EXISTS idx_stock_products_name
                     ON stock_products (product_name);
+                CREATE INDEX IF NOT EXISTS idx_internet_packages_active_sort
+                    ON internet_packages (is_active, sort_order);
                 CREATE INDEX IF NOT EXISTS idx_keywords_intent_lang
                     ON keywords (intent_code, lang_code);
                 CREATE INDEX IF NOT EXISTS idx_keywords_normalized_keyword
@@ -296,6 +319,7 @@ class SQLiteChatStore:
                 """
             )
             self._seed_intent_catalog(conn)
+            self._seed_internet_packages(conn)
 
     def _seed_intent_catalog(self, conn: sqlite3.Connection) -> None:
         seed_tables = {
@@ -372,6 +396,57 @@ class SQLiteChatStore:
                     json.dumps(item.get("required_slots") or [], ensure_ascii=True),
                     json.dumps(item.get("optional_slots") or [], ensure_ascii=True),
                     item.get("next_action"),
+                ),
+            )
+
+    def _seed_internet_packages(self, conn: sqlite3.Connection) -> None:
+        now = _utc_now()
+        for item in DEFAULT_INTERNET_PACKAGES:
+            conn.execute(
+                """
+                INSERT INTO internet_packages (
+                    package_code,
+                    package_name,
+                    speed_mbps,
+                    monthly_price,
+                    installation_fee,
+                    installation_fee_label,
+                    areas,
+                    benefits,
+                    is_active,
+                    sort_order,
+                    notes,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(package_code) DO UPDATE SET
+                    package_name = excluded.package_name,
+                    speed_mbps = excluded.speed_mbps,
+                    monthly_price = excluded.monthly_price,
+                    installation_fee = excluded.installation_fee,
+                    installation_fee_label = excluded.installation_fee_label,
+                    areas = excluded.areas,
+                    benefits = excluded.benefits,
+                    is_active = excluded.is_active,
+                    sort_order = excluded.sort_order,
+                    notes = excluded.notes,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    item["package_code"],
+                    item["package_name"],
+                    item["speed_mbps"],
+                    item["monthly_price"],
+                    item["installation_fee"],
+                    item.get("installation_fee_label"),
+                    json.dumps(item.get("areas") or [], ensure_ascii=True),
+                    json.dumps(item.get("benefits") or [], ensure_ascii=True),
+                    int(item.get("is_active", 1)),
+                    item.get("sort_order", 100),
+                    item.get("notes"),
+                    now,
+                    now,
                 ),
             )
 
@@ -860,6 +935,25 @@ class SQLiteChatStore:
                 ORDER BY intent_code
                 """
             ).fetchall()
+            internet_packages = conn.execute(
+                """
+                SELECT
+                    package_code,
+                    package_name,
+                    speed_mbps,
+                    monthly_price,
+                    installation_fee,
+                    installation_fee_label,
+                    areas,
+                    benefits,
+                    is_active,
+                    sort_order,
+                    notes
+                FROM internet_packages
+                WHERE is_active = 1
+                ORDER BY sort_order, speed_mbps, package_name
+                """
+            ).fetchall()
 
         return {
             "intents": [dict(row) for row in intents],
@@ -868,6 +962,10 @@ class SQLiteChatStore:
             "normalization_rules": [dict(row) for row in normalization_rules],
             "sample_utterances": [dict(row) for row in sample_utterances],
             "intent_mappings": [dict(row) for row in mappings],
+            "internet_packages": [
+                self._decode_internet_package_row(dict(row))
+                for row in internet_packages
+            ],
         }
 
     def list_intents_for_mapping(self) -> list[dict[str, Any]]:
@@ -888,6 +986,33 @@ class SQLiteChatStore:
                 """
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def list_internet_packages(self, active_only: bool = True) -> list[dict[str, Any]]:
+        where_clause = "WHERE is_active = 1" if active_only else ""
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    id,
+                    package_code,
+                    package_name,
+                    speed_mbps,
+                    monthly_price,
+                    installation_fee,
+                    installation_fee_label,
+                    areas,
+                    benefits,
+                    is_active,
+                    sort_order,
+                    notes,
+                    created_at,
+                    updated_at
+                FROM internet_packages
+                {where_clause}
+                ORDER BY sort_order, speed_mbps, package_name
+                """
+            ).fetchall()
+        return [self._decode_internet_package_row(dict(row)) for row in rows]
 
     def save_unprocessed_question(
         self,
@@ -1468,6 +1593,11 @@ class SQLiteChatStore:
             except json.JSONDecodeError:
                 return fallback
         return fallback
+
+    def _decode_internet_package_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        row["areas"] = self._decode_json_value(row.get("areas"), [])
+        row["benefits"] = self._decode_json_value(row.get("benefits"), [])
+        return row
 
     def _resolve_client(
         self,

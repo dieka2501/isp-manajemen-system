@@ -92,6 +92,7 @@ Database SQLite akan otomatis dibuat saat app start dan menyimpan:
 - `conversations`
 - `messages`
 - `stock_products`
+- `internet_packages`
 - `unprocessed_questions`
 - `intents`
 - `languages`
@@ -102,7 +103,7 @@ Database SQLite akan otomatis dibuat saat app start dan menyimpan:
 - `normalization_rules`
 - `intent_mappings`
 
-Data referensi intent/entity otomatis di-seed dari modul internal backend
+Data referensi intent/entity dan paket internet default otomatis di-seed dari modul internal backend
 `app.services.intent_seed`, sehingga production deploy tidak membutuhkan file
 SQL/JSON di root repo.
 
@@ -137,6 +138,7 @@ POST /api/v1/chat/clients
 POST /api/v1/chat/devices
 GET  /api/v1/chat/stock-products
 POST /api/v1/chat/stock-products
+GET  /api/v1/chat/internet-packages
 POST /api/v1/chat/agent/preview
 GET  /api/v1/chat/learning/intents
 GET  /api/v1/chat/learning/unprocessed
@@ -179,6 +181,11 @@ Dengan state ini, jawaban pendek seperti `Soreang` atau `Keluarga` bisa
 dipahami sebagai lanjutan dari pertanyaan bot sebelumnya, bukan selalu
 diklasifikasikan sebagai intent baru. Memory diperbarui saat agent menghasilkan
 `memory_update` dan kedaluwarsa 24 jam setelah update terakhir.
+
+Algoritma reply memakai prinsip soft selling: pertanyaan paket, harga, dan awal
+pemasangan tidak langsung meminta nama/nomor HP. Agent cukup menanyakan area,
+kebutuhan, atau speed dulu, lalu baru mengumpulkan identitas saat customer sudah
+jelas ingin diproses.
 
 Rancangan lengkap native LLM, memory, dan posisi OpenAI sebagai helper learning
 ditulis di [`docs/native-llm-memory.md`](docs/native-llm-memory.md).
