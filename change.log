@@ -1,4 +1,7 @@
 2026-06-12
+- Added a native SQLite `internet_packages` catalog seeded with Hemat, Keluarga, Premium, and Office packages for production startup/init.
+- Updated package, price, installation-fee, and package-comparison replies to read real package data from SQLite.
+- Added a read-only `/api/v1/chat/internet-packages` endpoint for package catalog verification.
 - Softened native ISP agent replies so package, price, and early installation questions no longer ask for customer identity too early.
 - Adjusted package/price overview ranking so broad "paket dan harga" questions enter the package information flow.
 - Delayed name and phone collection until an explicit processing/confirmation stage while still allowing memory to capture those slots if provided.

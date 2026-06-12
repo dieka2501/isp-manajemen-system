@@ -129,6 +129,60 @@ def build_catalog() -> dict[str, list[dict[str, Any]]]:
                 "next_action": "show_package_list",
             },
         ],
+        "internet_packages": [
+            {
+                "package_code": "hemat",
+                "package_name": "Paket Hemat",
+                "speed_mbps": 20,
+                "monthly_price": 150000,
+                "installation_fee": 150000,
+                "installation_fee_label": "Rp 150.000",
+                "areas": ["Soreang", "Bandung", "Cangkuang"],
+                "benefits": ["unlimited", "router dipinjamkan"],
+                "is_active": 1,
+                "sort_order": 10,
+                "notes": None,
+            },
+            {
+                "package_code": "keluarga",
+                "package_name": "Paket Keluarga",
+                "speed_mbps": 30,
+                "monthly_price": 200000,
+                "installation_fee": 150000,
+                "installation_fee_label": "Rp 150.000",
+                "areas": ["Soreang", "Bandung", "Cangkuang"],
+                "benefits": ["cocok 3-5 perangkat"],
+                "is_active": 1,
+                "sort_order": 20,
+                "notes": None,
+            },
+            {
+                "package_code": "premium",
+                "package_name": "Paket Premium",
+                "speed_mbps": 50,
+                "monthly_price": 300000,
+                "installation_fee": 0,
+                "installation_fee_label": "Rp 0 promo",
+                "areas": ["Soreang", "Bandung"],
+                "benefits": ["cocok kerja", "streaming", "gaming ringan"],
+                "is_active": 1,
+                "sort_order": 30,
+                "notes": None,
+            },
+            {
+                "package_code": "office",
+                "package_name": "Paket Office",
+                "speed_mbps": 100,
+                "monthly_price": 500000,
+                "installation_fee": 0,
+                "installation_fee_label": "Rp 0 promo",
+                "areas": ["Kab Bandung", "Kota Bandung", "Cimahi", "Bandung Barat"],
+                "benefits": ["cocok untuk kantor"],
+                "is_active": 1,
+                "sort_order": 40,
+                "notes": None,
+            },
+        ],
     }
 
 
@@ -141,6 +195,8 @@ class ISPCSAgentTests(unittest.TestCase):
 
         self.assertEqual(response.language, "id")
         self.assertEqual(response.intent.intent_code, "ask_price")
+        self.assertIn("Paket Keluarga", response.reply_text)
+        self.assertNotIn("Paket Hemat", response.reply_text)
         self.assertNotIn("Maaf Kak", response.reply_text)
         self.assertNotIn("nama pelanggan", response.reply_text.lower())
         self.assertNotIn("nomor hp", response.reply_text.lower())
@@ -149,9 +205,20 @@ class ISPCSAgentTests(unittest.TestCase):
         response = self.agent.answer("Saya ingin tahu paket dan harganya.")
 
         self.assertEqual(response.intent.intent_code, "ask_package")
+        self.assertIn("Paket Hemat", response.reply_text)
+        self.assertIn("Rp 150.000/bulan", response.reply_text)
+        self.assertIn("Paket Office", response.reply_text)
         self.assertNotIn("nama pelanggan", response.reply_text.lower())
         self.assertNotIn("nomor hp", response.reply_text.lower())
         self.assertIn("kebutuhan", response.reply_text.lower())
+
+    def test_package_overview_filters_by_area_when_area_is_available(self) -> None:
+        response = self.agent.answer("paket di Soreang apa aja?")
+
+        self.assertEqual(response.intent.intent_code, "ask_package")
+        self.assertIn("Untuk area soreang", response.reply_text)
+        self.assertIn("Paket Premium", response.reply_text)
+        self.assertNotIn("Paket Office", response.reply_text)
 
     def test_matches_coverage_from_network_phrase(self) -> None:
         response = self.agent.answer("di cigadung udah masuk jaringan belum?")

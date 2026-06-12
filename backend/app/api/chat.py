@@ -156,6 +156,11 @@ def upsert_stock_product(payload: StockProductUpsertRequest) -> dict[str, object
     return {"item": item}
 
 
+@chat_router.get("/internet-packages")
+def list_internet_packages(active_only: bool = Query(default=True)) -> dict[str, object]:
+    return {"items": _store().list_internet_packages(active_only=active_only)}
+
+
 @chat_router.post("/agent/preview")
 def preview_agent_reply(payload: AgentPreviewRequest) -> dict[str, object]:
     store = _store()

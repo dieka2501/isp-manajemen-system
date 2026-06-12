@@ -173,6 +173,7 @@ class ISPCSAgent:
         self.entity_keywords = catalog.get("entity_keywords", [])
         self.normalization_rules = catalog.get("normalization_rules", [])
         self.sample_utterances = catalog.get("sample_utterances", [])
+        self.internet_packages = catalog.get("internet_packages", [])
         self.intent_mappings = {
             item["intent_code"]: self._decode_mapping(item)
             for item in catalog.get("intent_mappings", [])
@@ -615,7 +616,7 @@ class ISPCSAgent:
     ) -> list[EntityMatch]:
         entities: list[EntityMatch] = []
         patterns = (
-            ("speed", "Kecepatan internet", r"\b\d+\s*(?:mbps|mega|gbps)\b"),
+            ("speed", "Kecepatan internet", r"\b\d+\s*(?:mb|mbps|mega|gbps)\b"),
             ("phone_number", "Nomor HP", r"(?:\+?62|0)8\d{7,12}"),
             ("price", "Harga", r"\b(?:rp|idr)?\s?\d[\d.]{3,}\b"),
         )
@@ -921,16 +922,8 @@ class ISPCSAgent:
             return self._slot_prompt(intent, missing_slots, context)
 
         templates = {
-            "show_package_list": (
-                "Bisa Kak. Paket internet biasanya disesuaikan dari kebutuhan: pemakaian ringan, keluarga, "
-                "kerja dari rumah, streaming, atau gaming. Kakak mau lihat rekomendasi berdasarkan kebutuhan, "
-                "atau sebutkan area dulu supaya infonya lebih pas?"
-            ),
-            "show_price": (
-                f"Bisa Kak, saya bantu arahkan info harga paket{context}. "
-                "Harga bisa berbeda tergantung speed dan area, jadi Kakak bisa sebutkan speed yang diminati "
-                "atau area pemasangannya dulu."
-            ),
+            "show_package_list": self._package_overview_reply(entities),
+            "show_price": self._price_overview_reply(entities, context),
             "ask_or_validate_address": (
                 "Bisa Kak, saya bantu cek coverage. Untuk awal, sebutkan area/kecamatan dulu juga cukup; "
                 "alamat lengkap bisa nanti kalau mau dilanjutkan."
@@ -959,8 +952,7 @@ class ISPCSAgent:
                 "dan paket yang dipilih. Nanti tim akan validasi coverage terlebih dahulu."
             ),
             "ask_installation_fee": (
-                "Siap Kak, biaya pemasangan bisa berbeda sesuai paket dan kebijakan client. "
-                "Boleh kirim area atau alamat lengkap agar kami cek info biaya awalnya?"
+                self._installation_fee_reply(entities)
             ),
             "ask_promo": (
                 "Siap Kak, saya bantu cek promo yang tersedia. Boleh info area pemasangan dan speed/paket "
@@ -979,8 +971,7 @@ class ISPCSAgent:
                 "dan paket/speed yang diminati dulu."
             ),
             "compare_package": (
-                "Siap Kak, saya bantu bandingkan paket. Boleh sebutkan prioritasnya: harga termurah, "
-                "speed lebih tinggi, stabil untuk kerja, atau gaming?"
+                self._package_overview_reply(entities)
             ),
             "choose_package": (
                 f"Siap Kak, pilihan paketnya saya catat{context}. "
@@ -1021,6 +1012,137 @@ class ISPCSAgent:
             template_key,
             "Maaf Kak, saya belum nyambung. Kakak boleh tanya paket, harga, coverage, atau cara pemasangan; saya ikuti dulu pertanyaannya.",
         )
+
+    def _package_overview_reply(self, entities: list[EntityMatch]) -> str:
+        package_summary = self._format_package_summary(entities)
+        if not package_summary:
+            return (
+                "Bisa Kak. Paket internet biasanya disesuaikan dari kebutuhan: pemakaian ringan, keluarga, "
+                "kerja dari rumah, streaming, atau gaming. Kakak mau lihat rekomendasi berdasarkan kebutuhan, "
+                "atau sebutkan area dulu supaya infonya lebih pas?"
+            )
+        return (
+            f"Bisa Kak. {package_summary}\n\n"
+            "Kalau Kakak mau, sebutkan kebutuhan pemakaian atau area pemasangannya supaya saya bantu pilihkan yang paling pas."
+        )
+
+    def _price_overview_reply(self, entities: list[EntityMatch], context: str) -> str:
+        package_summary = self._format_package_summary(entities)
+        if not package_summary:
+            return (
+                f"Bisa Kak, saya bantu arahkan info harga paket{context}. "
+                "Harga bisa berbeda tergantung speed dan area, jadi Kakak bisa sebutkan speed yang diminati "
+                "atau area pemasangannya dulu."
+            )
+        return (
+            f"Bisa Kak, ini gambaran harga paket{context}:\n{package_summary}\n\n"
+            "Harga final tetap bisa dikonfirmasi lagi sesuai area coverage. Kakak boleh sebutkan area atau speed yang diminati."
+        )
+
+    def _installation_fee_reply(self, entities: list[EntityMatch]) -> str:
+        packages = self._matching_packages(entities)
+        if not packages:
+            return (
+                "Siap Kak, biaya pemasangan bisa berbeda sesuai paket dan kebijakan client. "
+                "Boleh sebutkan area atau paket yang diminati dulu."
+            )
+        lines = []
+        for package in packages:
+            lines.append(
+                f"- {package['package_name']} {package['speed_mbps']} Mbps: instalasi {self._installation_label(package)}"
+            )
+        return (
+            "Siap Kak, ini biaya instalasi sementara:\n"
+            + "\n".join(lines)
+            + "\n\nKalau Kakak sebutkan area pemasangan, saya bisa bantu cocokan paket yang tersedia."
+        )
+
+    def _format_package_summary(self, entities: list[EntityMatch]) -> str:
+        packages = self._matching_packages(entities)
+        if not packages:
+            return ""
+        area = self._area_context(entities)
+        intro = (
+            f"Untuk area {area}, paket yang tersedia:"
+            if area
+            else "Sementara paket yang tersedia:"
+        )
+        lines = [intro]
+        for index, package in enumerate(packages, start=1):
+            benefits = ", ".join(str(item) for item in package.get("benefits") or [])
+            benefit_text = f" Benefit: {benefits}." if benefits else ""
+            lines.append(
+                f"{index}. {package['package_name']} {package['speed_mbps']} Mbps - "
+                f"{self._rupiah(package['monthly_price'])}/bulan, "
+                f"instalasi {self._installation_label(package)}.{benefit_text}"
+            )
+        return "\n".join(lines)
+
+    def _matching_packages(self, entities: list[EntityMatch]) -> list[dict[str, Any]]:
+        packages = [
+            package
+            for package in self.internet_packages
+            if int(package.get("is_active", 1) or 0) == 1
+        ]
+        speed = self._speed_context(entities)
+        if speed:
+            speed_matches = [
+                package
+                for package in packages
+                if int(package.get("speed_mbps") or 0) == speed
+            ]
+            if speed_matches:
+                packages = speed_matches
+
+        area = self._area_context(entities)
+        if not area:
+            return packages
+
+        normalized_area = normalize_text(area)
+        matched = [
+            package
+            for package in packages
+            if self._package_covers_area(package, normalized_area)
+        ]
+        return matched or packages
+
+    def _package_covers_area(self, package: dict[str, Any], normalized_area: str) -> bool:
+        for area in package.get("areas") or []:
+            normalized_package_area = normalize_text(str(area))
+            if normalized_package_area and (
+                normalized_package_area in normalized_area
+                or normalized_area in normalized_package_area
+            ):
+                return True
+        return False
+
+    def _area_context(self, entities: list[EntityMatch]) -> str | None:
+        for entity in entities:
+            if entity.entity_code in {"area", "address"} and entity.value.strip():
+                return entity.value.strip()
+        return None
+
+    def _speed_context(self, entities: list[EntityMatch]) -> int | None:
+        for entity in entities:
+            if entity.entity_code != "speed":
+                continue
+            match = re.search(r"\d+", entity.value)
+            if match:
+                return int(match.group(0))
+        return None
+
+    def _installation_label(self, package: dict[str, Any]) -> str:
+        label = str(package.get("installation_fee_label") or "").strip()
+        if label:
+            return label
+        return self._rupiah(package.get("installation_fee") or 0)
+
+    def _rupiah(self, value: Any) -> str:
+        try:
+            amount = int(value)
+        except (TypeError, ValueError):
+            amount = 0
+        return f"Rp {amount:,}".replace(",", ".")
 
     def _soft_missing_slots(
         self,

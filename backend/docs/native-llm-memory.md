@@ -76,6 +76,31 @@ Aturan awal:
 Tujuannya agar bot terasa seperti CS yang mengikuti ritme customer, bukan langsung
 menutup transaksi.
 
+## Katalog Paket Internet
+
+Informasi paket native disimpan di tabel `internet_packages`, bukan
+`stock_products`. Tabel stock tetap untuk barang/stok, sedangkan paket internet
+membutuhkan field khusus seperti speed, harga bulanan, biaya instalasi, area,
+dan benefit.
+
+Seed default yang dipakai untuk production deploy:
+
+- Paket Hemat: 20 Mbps, Rp 150.000/bulan, instalasi Rp 150.000, area Soreang/Bandung/Cangkuang.
+- Paket Keluarga: 30 Mbps, Rp 200.000/bulan, instalasi Rp 150.000, area Soreang/Bandung/Cangkuang.
+- Paket Premium: 50 Mbps, Rp 300.000/bulan, instalasi Rp 0 promo, area Soreang/Bandung.
+- Paket Office: 100 Mbps, Rp 500.000/bulan, instalasi Rp 0 promo, area Kab Bandung/Kota Bandung/Cimahi/Bandung Barat.
+
+Backend men-seed data ini otomatis saat startup melalui `SQLiteChatStore.initialize()`.
+Untuk database production yang sudah ada, restart backend atau jalankan:
+
+```bash
+python -m app.cli.init_sqlite
+```
+
+Agent memakai katalog ini untuk `ask_package`, `ask_price`,
+`ask_installation_fee`, dan `compare_package`. Jika area customer terdeteksi,
+agent mencoba memfilter paket berdasarkan area tersebut.
+
 ## Contoh Perilaku
 
 Input:
