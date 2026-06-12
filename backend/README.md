@@ -116,6 +116,13 @@ Desain ini mendukung:
 Jika ingin membuat dan seed database tanpa menjalankan server, gunakan:
 
 ```bash
+bash init_sqlite.sh
+```
+
+Jika sedang berada langsung di folder `backend/`, command modulnya juga bisa
+dijalankan manual:
+
+```bash
 python -m app.cli.init_sqlite
 ```
 
