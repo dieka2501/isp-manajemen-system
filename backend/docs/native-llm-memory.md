@@ -58,6 +58,24 @@ Contoh:
 7. Backend menyimpan `memory_update` kembali ke `conversation_states`.
 8. Reply dikirim via Fonnte dan disimpan sebagai outgoing message.
 
+## Prinsip Soft Selling
+
+Native agent harus memberi ruang customer bertanya sebelum masuk pengambilan data
+lead. Pertanyaan identitas seperti nama pelanggan dan nomor HP aktif hanya
+diminta saat customer sudah jelas ingin diproses, misalnya intent
+`confirm_order` atau state memang sedang menunggu data tersebut.
+
+Aturan awal:
+
+- `ask_package` menjawab dengan orientasi kebutuhan/area, bukan langsung meminta identitas.
+- `ask_price` mengarahkan ke speed/area agar harga relevan, bukan meminta nama atau nomor HP.
+- `ask_installation` cukup meminta area/alamat singkat dulu; nama dan nomor HP ditunda.
+- `choose_package` mencatat minat paket lalu cek area/coverage dulu sebelum data pelanggan.
+- `cancel_order` atau "gak jadi" dijawab santai dan tidak meminta data tambahan.
+
+Tujuannya agar bot terasa seperti CS yang mengikuti ritme customer, bukan langsung
+menutup transaksi.
+
 ## Contoh Perilaku
 
 Input:

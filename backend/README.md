@@ -180,6 +180,11 @@ dipahami sebagai lanjutan dari pertanyaan bot sebelumnya, bukan selalu
 diklasifikasikan sebagai intent baru. Memory diperbarui saat agent menghasilkan
 `memory_update` dan kedaluwarsa 24 jam setelah update terakhir.
 
+Algoritma reply memakai prinsip soft selling: pertanyaan paket, harga, dan awal
+pemasangan tidak langsung meminta nama/nomor HP. Agent cukup menanyakan area,
+kebutuhan, atau speed dulu, lalu baru mengumpulkan identitas saat customer sudah
+jelas ingin diproses.
+
 Rancangan lengkap native LLM, memory, dan posisi OpenAI sebagai helper learning
 ditulis di [`docs/native-llm-memory.md`](docs/native-llm-memory.md).
 

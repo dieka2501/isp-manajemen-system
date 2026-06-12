@@ -261,7 +261,11 @@ class ISPCSAgent:
 
         candidates = self._rank_intents(normalized_message, language)
         intent = candidates[0] if candidates else self._unknown_intent()
-        missing_slots = self._missing_slots(intent.required_slots, entities)
+        missing_slots = self._soft_missing_slots(
+            intent,
+            self._missing_slots(intent.required_slots, entities),
+            entities,
+        )
         reply_text = self._compose_reply(intent, entities, missing_slots)
         memory_update = self._build_memory_update(
             intent=intent,
@@ -559,8 +563,12 @@ class ISPCSAgent:
             scores.append(("ask_installation_schedule", 5, "heuristic:schedule"))
         if has_any({"paket", "speed", "mbps", "mega", "unlimited"}) and has_any({"apa", "daftar", "pilihan", "info", "lihat", "murah"}):
             scores.append(("ask_package", 5, "heuristic:package"))
+        if has_any({"paket"}) and has_any({"harga", "biaya", "tarif", "info", "tahu"}) and not has_phrase(r"\b\d+\s*(?:mbps|mega|gbps)?\b"):
+            scores.append(("ask_package", 16, "heuristic:package_price_overview"))
         if has_any({"pasang", "daftar", "langganan", "berlangganan", "install", "pemasangan", "masang"}) and not has_any({"jaringan", "coverage", "jadwal", "teknisi"}):
             scores.append(("ask_installation", 4, "heuristic:installation"))
+        if has_phrase(r"\b(?:gak|nggak|ga|tidak|teu)?\s*jadi\b") or has_any({"batal", "cancel"}):
+            scores.append(("cancel_order", 8, "heuristic:cancel"))
 
         return scores
 
@@ -830,9 +838,8 @@ class ISPCSAgent:
             if not slots.get("usage_need"):
                 waiting_for.append("usage_need")
         if intent.intent_code == "choose_package":
-            for slot in ("customer_name", "phone_number", "address"):
-                if not slots.get(slot) and slot not in waiting_for:
-                    waiting_for.append(slot)
+            if not (slots.get("address") or slots.get("area")) and "address" not in waiting_for:
+                waiting_for.append("address")
 
         stage = "collecting_slots" if waiting_for else "ready"
         return {
@@ -870,7 +877,12 @@ class ISPCSAgent:
 
         if not remaining_slots:
             if current_intent in {"ask_installation", "confirm_order", "choose_package"}:
-                return f"{opener} Datanya sudah cukup untuk kami bantu proses pengecekan coverage dan pemasangan."
+                if current_intent == "confirm_order":
+                    return f"{opener} Datanya sudah cukup untuk kami bantu proses pengecekan coverage dan pemasangan."
+                return (
+                    f"{opener} Kita bisa lanjut pelan-pelan. "
+                    "Kalau Kakak masih mau tanya paket, harga, atau coverage dulu, silakan."
+                )
             if current_intent == "ask_package" and collected_slots.get("usage_need"):
                 return (
                     f"{opener} Untuk kebutuhan {collected_slots['usage_need']}, "
@@ -904,21 +916,24 @@ class ISPCSAgent:
         missing_slots: list[str],
     ) -> str:
         context = self._entity_context(entities)
+        missing_slots = self._soft_missing_slots(intent, missing_slots, entities)
         if missing_slots:
             return self._slot_prompt(intent, missing_slots, context)
 
         templates = {
             "show_package_list": (
-                "Siap Kak, kami bantu info paket internet rumah. "
-                "Boleh sebutkan kebutuhan utamanya: pemakaian ringan, keluarga, kerja dari rumah, atau gaming?"
+                "Bisa Kak. Paket internet biasanya disesuaikan dari kebutuhan: pemakaian ringan, keluarga, "
+                "kerja dari rumah, streaming, atau gaming. Kakak mau lihat rekomendasi berdasarkan kebutuhan, "
+                "atau sebutkan area dulu supaya infonya lebih pas?"
             ),
             "show_price": (
-                f"Siap Kak, saya bantu cek harga paket{context}. "
-                "Untuk harga yang paling pas, boleh info area pemasangan atau alamat lengkapnya?"
+                f"Bisa Kak, saya bantu arahkan info harga paket{context}. "
+                "Harga bisa berbeda tergantung speed dan area, jadi Kakak bisa sebutkan speed yang diminati "
+                "atau area pemasangannya dulu."
             ),
             "ask_or_validate_address": (
-                "Bisa Kak. Saya bantu cek coverage jaringan. Mohon kirim alamat lengkap "
-                "beserta patokan terdekat agar tim bisa validasi area."
+                "Bisa Kak, saya bantu cek coverage. Untuk awal, sebutkan area/kecamatan dulu juga cukup; "
+                "alamat lengkap bisa nanti kalau mau dilanjutkan."
             ),
             "check_technician_schedule": (
                 "Bisa kami bantu jadwalkan teknisi. Mohon kirim alamat lengkap, paket yang dipilih, "
@@ -932,8 +947,8 @@ class ISPCSAgent:
                 "Baik Kak, data utama sudah cukup untuk diproses. Saya teruskan sebagai permintaan pemasangan."
             ),
             "ask_address_or_show_packages": (
-                "Halo Kak, bisa kami bantu untuk pemasangan internet rumah. "
-                "Boleh kirim alamat lengkap dulu untuk cek coverage, atau sebutkan paket/speed yang diminati."
+                "Bisa Kak. Kita bisa mulai dari lihat gambaran paket dulu atau cek area pemasangan. "
+                "Kakak ingin tanya paket/harga dulu, atau sebutkan area pemasangannya?"
             ),
             "ask_speed": (
                 f"Siap Kak, saya bantu info pilihan speed{context}. "
@@ -960,8 +975,8 @@ class ISPCSAgent:
                 "Boleh info paket atau speed yang diminati agar saya bantu cekkan?"
             ),
             "ask_availability_today": (
-                "Saya bantu cek kemungkinan pemasangan cepat ya Kak. Mohon kirim alamat lengkap, "
-                "paket yang diminati, dan nomor HP aktif."
+                "Saya bantu cek kemungkinan pemasangan cepat ya Kak. Untuk awal, sebutkan area pemasangan "
+                "dan paket/speed yang diminati dulu."
             ),
             "compare_package": (
                 "Siap Kak, saya bantu bandingkan paket. Boleh sebutkan prioritasnya: harga termurah, "
@@ -969,18 +984,18 @@ class ISPCSAgent:
             ),
             "choose_package": (
                 f"Siap Kak, pilihan paketnya saya catat{context}. "
-                "Mohon kirim nama pelanggan, nomor HP aktif, dan alamat lengkap untuk validasi coverage."
+                "Sebelum masuk data pelanggan, kita cek dulu area/alamat pemasangannya supaya paketnya sesuai coverage."
             ),
             "provide_address": (
                 "Terima kasih Kak, alamatnya saya terima. Saya bantu teruskan untuk cek coverage jaringan."
             ),
             "provide_contact": (
-                "Terima kasih Kak, kontaknya saya catat. Mohon kirim alamat lengkap dan paket yang diminati "
-                "agar proses pemasangan bisa dilanjutkan."
+                "Terima kasih Kak, kontaknya saya catat. Kalau Kakak masih ingin tanya paket atau harga dulu, "
+                "silakan; kalau mau lanjut, cukup kirim area/alamat pemasangannya."
             ),
             "cancel_order": (
-                "Baik Kak, saya catat permintaan pembatalan/penundaannya. Boleh info nomor HP terdaftar "
-                "atau alamat pemasangan agar tim bisa cek datanya?"
+                "Tidak apa-apa Kak. Saya tidak lanjutkan dulu. Kalau nanti mau tanya paket, harga, atau coverage lagi, "
+                "saya siap bantu."
             ),
             "complaint_installation": (
                 "Mohon maaf atas kendalanya Kak. Boleh kirim nomor HP terdaftar, alamat pemasangan, "
@@ -1004,8 +1019,27 @@ class ISPCSAgent:
         template_key = intent.next_action or intent.intent_code
         return templates.get(
             template_key,
-            "Maaf Kak, saya belum menangkap kebutuhan detailnya. Boleh jelaskan ingin pasang internet, cek paket, harga, coverage, atau jadwal teknisi?",
+            "Maaf Kak, saya belum nyambung. Kakak boleh tanya paket, harga, coverage, atau cara pemasangan; saya ikuti dulu pertanyaannya.",
         )
+
+    def _soft_missing_slots(
+        self,
+        intent: IntentMatch,
+        missing_slots: list[str],
+        entities: list[EntityMatch],
+    ) -> list[str]:
+        if not missing_slots:
+            return []
+        entity_codes = {entity.entity_code for entity in entities}
+        if intent.intent_code == "ask_installation":
+            if "address" in missing_slots and "area" not in entity_codes:
+                return ["address"]
+            return []
+        if intent.intent_code == "choose_package":
+            if "address" in missing_slots and "area" not in entity_codes:
+                return ["address"]
+            return []
+        return missing_slots
 
     def _slot_prompt(
         self,
@@ -1022,6 +1056,22 @@ class ISPCSAgent:
             "schedule_time": "jam pemasangan",
         }
         requested = ", ".join(labels.get(slot, slot) for slot in missing_slots)
+        if intent.intent_code == "ask_installation" and missing_slots == ["address"]:
+            return (
+                "Bisa Kak. Kita mulai pelan-pelan dulu. "
+                "Kalau mau cek area, sebutkan kecamatan/kelurahan pemasangannya saja dulu; "
+                "kalau masih mau tanya paket atau harga, silakan."
+            )
+        if intent.intent_code == "choose_package" and missing_slots == ["address"]:
+            return (
+                "Siap Kak. Sebelum masuk data pelanggan, kita cek area pemasangannya dulu ya. "
+                "Cukup sebutkan kecamatan/kelurahan atau alamat singkatnya."
+            )
+        if intent.intent_code == "ask_coverage" and missing_slots == ["address"]:
+            return (
+                "Siap Kak, saya bantu cek coverage. Untuk awal, sebutkan area/kecamatan dulu juga cukup; "
+                "alamat lengkap bisa nanti kalau mau dilanjutkan."
+            )
         opener = {
             "ask_installation": "Bisa Kak, kami bantu proses pemasangan internet rumah.",
             "ask_coverage": "Siap Kak, saya bantu cek coverage jaringan.",

@@ -1,3 +1,9 @@
+2026-06-12
+- Softened native ISP agent replies so package, price, and early installation questions no longer ask for customer identity too early.
+- Adjusted package/price overview ranking so broad "paket dan harga" questions enter the package information flow.
+- Delayed name and phone collection until an explicit processing/confirmation stage while still allowing memory to capture those slots if provided.
+- Added tests for soft package, price, and installation follow-up behavior.
+
 2026-06-11
 - Added SQLite-backed native conversation memory through `conversation_states` so the ISP agent can continue slot collection across webhook messages.
 - Updated the CS/Sales agent to fill pending slots from follow-up messages before reclassifying them as new intents.

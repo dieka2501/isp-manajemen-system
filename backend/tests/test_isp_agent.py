@@ -142,6 +142,16 @@ class ISPCSAgentTests(unittest.TestCase):
         self.assertEqual(response.language, "id")
         self.assertEqual(response.intent.intent_code, "ask_price")
         self.assertNotIn("Maaf Kak", response.reply_text)
+        self.assertNotIn("nama pelanggan", response.reply_text.lower())
+        self.assertNotIn("nomor hp", response.reply_text.lower())
+
+    def test_package_and_price_overview_stays_in_soft_package_flow(self) -> None:
+        response = self.agent.answer("Saya ingin tahu paket dan harganya.")
+
+        self.assertEqual(response.intent.intent_code, "ask_package")
+        self.assertNotIn("nama pelanggan", response.reply_text.lower())
+        self.assertNotIn("nomor hp", response.reply_text.lower())
+        self.assertIn("kebutuhan", response.reply_text.lower())
 
     def test_matches_coverage_from_network_phrase(self) -> None:
         response = self.agent.answer("di cigadung udah masuk jaringan belum?")
@@ -166,7 +176,9 @@ class ISPCSAgentTests(unittest.TestCase):
         first_response = self.agent.answer("Saya mau pasang internet, bisa?")
 
         self.assertEqual(first_response.intent.intent_code, "ask_installation")
-        self.assertIn("address", first_response.memory_update["waiting_for"])
+        self.assertEqual(first_response.memory_update["waiting_for"], ["address"])
+        self.assertNotIn("nama pelanggan", first_response.reply_text.lower())
+        self.assertNotIn("nomor hp", first_response.reply_text.lower())
 
         followup_response = self.agent.answer(
             "Soreang",
@@ -175,7 +187,8 @@ class ISPCSAgentTests(unittest.TestCase):
 
         self.assertEqual(followup_response.intent.intent_code, "ask_installation")
         self.assertEqual(followup_response.memory_update["collected_slots"]["address"], "Soreang")
-        self.assertIn("nama pelanggan", followup_response.reply_text)
+        self.assertNotIn("nama pelanggan", followup_response.reply_text.lower())
+        self.assertNotIn("nomor hp", followup_response.reply_text.lower())
 
     def test_memory_extracts_name_phone_and_address_from_combined_followup(self) -> None:
         state = {
