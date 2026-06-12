@@ -1,4 +1,5 @@
 2026-06-12
+- Added root `init_sqlite.sh` so production containers can initialize/seed SQLite from `/app` without `ModuleNotFoundError: app`.
 - Added a native SQLite `internet_packages` catalog seeded with Hemat, Keluarga, Premium, and Office packages for production startup/init.
 - Updated package, price, installation-fee, and package-comparison replies to read real package data from SQLite.
 - Added a read-only `/api/v1/chat/internet-packages` endpoint for package catalog verification.
