@@ -83,6 +83,10 @@ Environment variable yang perlu diisi:
 ```bash
 FONNTE_WEBHOOK_SECRET=rahasia-anda
 CHAT_DATABASE_PATH=/absolute/path/chat.sqlite3
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+LLM_RESPONSE_ENABLED=true
+CONVERSATION_STATE_TTL_HOURS=48
 ```
 
 Database SQLite akan otomatis dibuat saat app start dan menyimpan:
@@ -93,6 +97,10 @@ Database SQLite akan otomatis dibuat saat app start dan menyimpan:
 - `messages`
 - `stock_products`
 - `internet_packages`
+- `coverage_areas`
+- `payment_methods`
+- `conversation_states`
+- `conversation_logs`
 - `unprocessed_questions`
 - `intents`
 - `languages`
@@ -103,9 +111,9 @@ Database SQLite akan otomatis dibuat saat app start dan menyimpan:
 - `normalization_rules`
 - `intent_mappings`
 
-Data referensi intent/entity dan paket internet default otomatis di-seed dari modul internal backend
-`app.services.intent_seed`, sehingga production deploy tidak membutuhkan file
-SQL/JSON di root repo.
+Data referensi intent/entity, paket internet, coverage area, dan payment method
+default otomatis di-seed dari modul internal backend `app.services.intent_seed`,
+sehingga production deploy tidak membutuhkan file SQL/JSON di root repo.
 
 Desain ini mendukung:
 - multi account
@@ -182,17 +190,26 @@ klik **Save mapping**. Model default adalah `gpt-4o-mini` dan bisa diganti lewat
 Agent menyimpan memory aktif per conversation di tabel `conversation_states`.
 Tabel `messages` tetap menjadi log webhook/inbound/outbound, sedangkan
 `conversation_states` menyimpan state terstruktur seperti `current_intent`,
-`waiting_for`, `collected_slots`, `last_bot_question`, dan `expires_at`.
+`current_topic`, `waiting_for`, `collected_slots`, `last_user_message`,
+`last_bot_response`, `last_bot_question`, dan `expires_at`.
 
 Dengan state ini, jawaban pendek seperti `Soreang` atau `Keluarga` bisa
 dipahami sebagai lanjutan dari pertanyaan bot sebelumnya, bukan selalu
 diklasifikasikan sebagai intent baru. Memory diperbarui saat agent menghasilkan
-`memory_update` dan kedaluwarsa 24 jam setelah update terakhir.
+`memory_update` dan kedaluwarsa sesuai `CONVERSATION_STATE_TTL_HOURS`
+setelah update terakhir.
 
 Algoritma reply memakai prinsip soft selling: pertanyaan paket, harga, dan awal
 pemasangan tidak langsung meminta nama/nomor HP. Agent cukup menanyakan area,
 kebutuhan, atau speed dulu, lalu baru mengumpulkan identitas saat customer sudah
 jelas ingin diproses.
+
+Sebelum reply dikirim, service mengambil knowledge relevan dari SQLite
+(`internet_packages`, `coverage_areas`, dan `payment_methods`), membangun prompt
+terbatas, lalu memakai OpenAI sebagai final response generator jika
+`LLM_RESPONSE_ENABLED=true` dan `OPENAI_API_KEY` tersedia. Jika OpenAI gagal atau
+dimatikan, native reply tetap dipakai. Setiap langkah disimpan ke
+`conversation_logs` untuk audit dan evaluasi learning.
 
 Rancangan lengkap native LLM, memory, dan posisi OpenAI sebagai helper learning
 ditulis di [`docs/native-llm-memory.md`](docs/native-llm-memory.md).
@@ -277,6 +294,11 @@ APP_ENV=production
 APP_DEBUG=false
 FONNTE_TOKEN=
 FONNTE_WEBHOOK_SECRET=
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_TIMEOUT_SECONDS=20
+LLM_RESPONSE_ENABLED=true
+CONVERSATION_STATE_TTL_HOURS=48
 CHAT_DATABASE_PATH=/app/data/chat.sqlite3
 DASHBOARD_SECRET=
 SQLITE_EXPLORER_SOURCES_JSON=[{"name":"Chat Database","path":"/app/data/chat.sqlite3"}]

@@ -27,6 +27,21 @@ class SQLitePackageCatalogTests(unittest.TestCase):
         self.assertIn("Paket Premium", package_names)
         self.assertIn("Paket Office", package_names)
 
+    def test_initialize_seeds_coverage_and_payment_catalogs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "chat.sqlite3")
+            store = SQLiteChatStore(Settings(chat_database_path=db_path))
+
+            store.initialize()
+            catalog = store.get_intent_agent_catalog()
+
+        coverage_names = {area["area_name"] for area in catalog["coverage_areas"]}
+        payment_names = {method["method_name"] for method in catalog["payment_methods"]}
+        self.assertIn("Soreang", coverage_names)
+        self.assertIn("Conblong", coverage_names)
+        self.assertIn("QRIS", payment_names)
+        self.assertIn("Transfer Bank", payment_names)
+
 
 if __name__ == "__main__":
     unittest.main()

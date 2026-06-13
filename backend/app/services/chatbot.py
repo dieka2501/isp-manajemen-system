@@ -7,6 +7,8 @@ from app.core.config import Settings
 from app.services.chat_store import SQLiteChatStore
 from app.services.fonnte import FonnteClient
 from app.services.isp_agent import ISPCSAgent
+from app.services.knowledge_retrieval import KnowledgeRetriever
+from app.services.llm_response import LLMResponseGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +63,14 @@ class ISPCSChatService:
             }
 
         conversation_state = self.store.get_conversation_state(stored_message.conversation_id)
-        agent_response = ISPCSAgent(self.store.get_intent_agent_catalog()).answer(
+        catalog = self.store.get_intent_agent_catalog()
+        agent_response = ISPCSAgent(catalog).answer(
             message_text,
+            conversation_state=conversation_state,
+        )
+        knowledge = KnowledgeRetriever(catalog).retrieve(
+            user_message=message_text,
+            agent_response=agent_response,
             conversation_state=conversation_state,
         )
         review_reason = self._learning_review_reason(agent_response)
@@ -82,10 +90,22 @@ class ISPCSChatService:
             ",".join(entity.entity_code for entity in agent_response.entities) or "-",
         )
 
-        reply_text = agent_response.reply_text
+        reply_text = LLMResponseGenerator(self.settings).generate_reply(
+            user_message=message_text,
+            agent_response=agent_response,
+            conversation_state=conversation_state,
+            knowledge=knowledge,
+            native_reply=agent_response.reply_text,
+        )
+        state_after = self._finalize_state(
+            state=agent_response.memory_update,
+            knowledge=knowledge,
+            user_message=message_text,
+            reply_text=reply_text,
+        )
         self.store.upsert_conversation_state(
             conversation_id=stored_message.conversation_id,
-            state=agent_response.memory_update,
+            state=state_after,
         )
         send_result: dict[str, Any] | None = None
         send_error: str | None = None
@@ -122,6 +142,19 @@ class ISPCSChatService:
             matched_product_names=[],
             reply_text=reply_text,
         )
+        self.store.save_conversation_log(
+            conversation_id=stored_message.conversation_id,
+            message_id=stored_message.message_id,
+            phone_number=stored_message.sender_number,
+            user_message=message_text,
+            detected_intent=agent_response.intent.intent_code,
+            confidence=agent_response.intent.confidence,
+            entities=[entity.as_dict() for entity in agent_response.entities],
+            state_before=conversation_state,
+            state_after=state_after,
+            knowledge=knowledge,
+            bot_response=reply_text,
+        )
 
         return {
             "conversation_id": stored_message.conversation_id,
@@ -137,7 +170,11 @@ class ISPCSChatService:
                 "identifier": stored_message.device.device_identifier,
                 "name": stored_message.device.device_name,
             },
-            "analysis": agent_response.as_dict(),
+            "analysis": {
+                **agent_response.as_dict(),
+                "knowledge": knowledge,
+                "final_reply_text": reply_text,
+            },
             "reply_attempted": reply_text is not None,
             "matched_products": [],
             "reply_text": reply_text,
@@ -153,3 +190,20 @@ class ISPCSChatService:
         if agent_response.intent.confidence < 0.35:
             return "low_confidence"
         return None
+
+    def _finalize_state(
+        self,
+        *,
+        state: dict[str, Any] | None,
+        knowledge: dict[str, Any],
+        user_message: str,
+        reply_text: str,
+    ) -> dict[str, Any] | None:
+        if not state:
+            return None
+        finalized = dict(state)
+        finalized["current_topic"] = knowledge.get("topic") or finalized.get("current_topic")
+        finalized["last_user_message"] = user_message
+        finalized["last_bot_response"] = reply_text
+        finalized["last_bot_question"] = reply_text
+        return finalized

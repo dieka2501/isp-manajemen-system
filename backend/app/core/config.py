@@ -29,6 +29,8 @@ class Settings:
         "https://api.openai.com/v1/responses",
     )
     openai_timeout_seconds: int = int(os.getenv("OPENAI_TIMEOUT_SECONDS", "20"))
+    llm_response_enabled: bool = os.getenv("LLM_RESPONSE_ENABLED", "true").lower() == "true"
+    conversation_state_ttl_hours: int = int(os.getenv("CONVERSATION_STATE_TTL_HOURS", "48"))
     chat_database_path: str = os.getenv(
         "CHAT_DATABASE_PATH",
         str(BASE_DIR / "data" / "chat.sqlite3"),

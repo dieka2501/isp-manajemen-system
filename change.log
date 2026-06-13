@@ -1,3 +1,11 @@
+2026-06-13
+- Added an LLM orchestration layer for incoming WhatsApp chats: native intent/entity detection, conversation state, SQLite knowledge retrieval, guarded OpenAI response generation, state persistence, and send flow.
+- Added SQLite `coverage_areas`, `payment_methods`, and `conversation_logs` tables with default seeds for coverage/payment context and auditability.
+- Added `current_topic`, `last_user_message`, and `last_bot_response` to conversation state so package, coverage, and payment follow-ups can be answered without repeating generic replies.
+- Added package/payment/coverage knowledge retrieval and anti-repetition behavior for follow-ups such as `Yang 30 Mbps berapa?`, `Kalau QRIS bisa?`, and `Conblong`.
+- Added `LLM_RESPONSE_ENABLED` and `CONVERSATION_STATE_TTL_HOURS` environment settings, plus updated native LLM orchestration documentation.
+- Closed SQLite connections explicitly through the chat store context manager and added tests for the orchestration, package, coverage, and payment flows.
+
 2026-06-12
 - Added root `init_sqlite.sh` so production containers can initialize/seed SQLite from `/app` without `ModuleNotFoundError: app`.
 - Added a native SQLite `internet_packages` catalog seeded with Hemat, Keluarga, Premium, and Office packages for production startup/init.
