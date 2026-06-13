@@ -4,16 +4,19 @@ import json
 import re
 import secrets
 import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from app.core.config import Settings
 from app.services.intent_seed import (
+    DEFAULT_COVERAGE_AREAS,
     DEFAULT_INTENT_MAPPINGS,
     DEFAULT_INTENT_SEED,
     DEFAULT_INTERNET_PACKAGES,
+    DEFAULT_PAYMENT_METHODS,
 )
 
 
@@ -171,6 +174,32 @@ class SQLiteChatStore:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS coverage_areas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    area_code TEXT NOT NULL UNIQUE,
+                    area_name TEXT NOT NULL,
+                    city TEXT,
+                    district TEXT,
+                    coverage_status TEXT NOT NULL DEFAULT 'unknown'
+                        CHECK(coverage_status IN ('covered', 'partial', 'not_covered', 'unknown')),
+                    notes TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    sort_order INTEGER NOT NULL DEFAULT 100,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS payment_methods (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    method_code TEXT NOT NULL UNIQUE,
+                    method_name TEXT NOT NULL,
+                    is_available INTEGER NOT NULL DEFAULT 1,
+                    notes TEXT,
+                    sort_order INTEGER NOT NULL DEFAULT 100,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS intents (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     intent_code TEXT NOT NULL UNIQUE,
@@ -252,10 +281,13 @@ class SQLiteChatStore:
                 CREATE TABLE IF NOT EXISTS conversation_states (
                     conversation_id INTEGER PRIMARY KEY,
                     current_intent TEXT,
+                    current_topic TEXT,
                     stage TEXT NOT NULL DEFAULT 'idle',
                     waiting_for TEXT NOT NULL DEFAULT '[]',
                     collected_slots TEXT NOT NULL DEFAULT '{}',
                     last_bot_question TEXT,
+                    last_user_message TEXT,
+                    last_bot_response TEXT,
                     next_action TEXT,
                     expires_at TEXT,
                     created_at TEXT NOT NULL,
@@ -291,6 +323,24 @@ class SQLiteChatStore:
                     FOREIGN KEY (mapped_intent_code) REFERENCES intents (intent_code)
                 );
 
+                CREATE TABLE IF NOT EXISTS conversation_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conversation_id INTEGER NOT NULL,
+                    message_id INTEGER,
+                    phone_number TEXT NOT NULL,
+                    user_message TEXT NOT NULL,
+                    detected_intent TEXT,
+                    confidence REAL,
+                    entities_json TEXT,
+                    state_before_json TEXT,
+                    state_after_json TEXT,
+                    knowledge_json TEXT,
+                    bot_response TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE,
+                    FOREIGN KEY (message_id) REFERENCES messages (id) ON DELETE SET NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_clients_account_id ON clients (account_id);
                 CREATE INDEX IF NOT EXISTS idx_devices_client_id ON devices (client_id);
                 CREATE INDEX IF NOT EXISTS idx_conversations_client_id ON conversations (client_id);
@@ -302,6 +352,10 @@ class SQLiteChatStore:
                     ON stock_products (product_name);
                 CREATE INDEX IF NOT EXISTS idx_internet_packages_active_sort
                     ON internet_packages (is_active, sort_order);
+                CREATE INDEX IF NOT EXISTS idx_coverage_areas_active_sort
+                    ON coverage_areas (is_active, sort_order);
+                CREATE INDEX IF NOT EXISTS idx_payment_methods_available_sort
+                    ON payment_methods (is_available, sort_order);
                 CREATE INDEX IF NOT EXISTS idx_keywords_intent_lang
                     ON keywords (intent_code, lang_code);
                 CREATE INDEX IF NOT EXISTS idx_keywords_normalized_keyword
@@ -316,10 +370,15 @@ class SQLiteChatStore:
                     ON unprocessed_questions (status, created_at);
                 CREATE INDEX IF NOT EXISTS idx_unprocessed_questions_client
                     ON unprocessed_questions (client_id, status);
+                CREATE INDEX IF NOT EXISTS idx_conversation_logs_conversation
+                    ON conversation_logs (conversation_id, created_at);
                 """
             )
+            self._ensure_schema_migrations(conn)
             self._seed_intent_catalog(conn)
             self._seed_internet_packages(conn)
+            self._seed_coverage_areas(conn)
+            self._seed_payment_methods(conn)
 
     def _seed_intent_catalog(self, conn: sqlite3.Connection) -> None:
         seed_tables = {
@@ -449,6 +508,100 @@ class SQLiteChatStore:
                     now,
                 ),
             )
+
+    def _seed_coverage_areas(self, conn: sqlite3.Connection) -> None:
+        now = _utc_now()
+        for item in DEFAULT_COVERAGE_AREAS:
+            conn.execute(
+                """
+                INSERT INTO coverage_areas (
+                    area_code,
+                    area_name,
+                    city,
+                    district,
+                    coverage_status,
+                    notes,
+                    is_active,
+                    sort_order,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(area_code) DO UPDATE SET
+                    area_name = excluded.area_name,
+                    city = excluded.city,
+                    district = excluded.district,
+                    coverage_status = excluded.coverage_status,
+                    notes = excluded.notes,
+                    is_active = excluded.is_active,
+                    sort_order = excluded.sort_order,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    item["area_code"],
+                    item["area_name"],
+                    item.get("city"),
+                    item.get("district"),
+                    item.get("coverage_status", "unknown"),
+                    item.get("notes"),
+                    int(item.get("is_active", 1)),
+                    item.get("sort_order", 100),
+                    now,
+                    now,
+                ),
+            )
+
+    def _seed_payment_methods(self, conn: sqlite3.Connection) -> None:
+        now = _utc_now()
+        for item in DEFAULT_PAYMENT_METHODS:
+            conn.execute(
+                """
+                INSERT INTO payment_methods (
+                    method_code,
+                    method_name,
+                    is_available,
+                    notes,
+                    sort_order,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(method_code) DO UPDATE SET
+                    method_name = excluded.method_name,
+                    is_available = excluded.is_available,
+                    notes = excluded.notes,
+                    sort_order = excluded.sort_order,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    item["method_code"],
+                    item["method_name"],
+                    int(item.get("is_available", 1)),
+                    item.get("notes"),
+                    item.get("sort_order", 100),
+                    now,
+                    now,
+                ),
+            )
+
+    def _ensure_schema_migrations(self, conn: sqlite3.Connection) -> None:
+        self._ensure_column(conn, "conversation_states", "current_topic", "TEXT")
+        self._ensure_column(conn, "conversation_states", "last_user_message", "TEXT")
+        self._ensure_column(conn, "conversation_states", "last_bot_response", "TEXT")
+
+    def _ensure_column(
+        self,
+        conn: sqlite3.Connection,
+        table_name: str,
+        column_name: str,
+        column_type: str,
+    ) -> None:
+        columns = {
+            str(row["name"])
+            for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        }
+        if column_name not in columns:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
 
     def list_accounts(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
@@ -788,10 +941,13 @@ class SQLiteChatStore:
                 SELECT
                     conversation_id,
                     current_intent,
+                    current_topic,
                     stage,
                     waiting_for,
                     collected_slots,
                     last_bot_question,
+                    last_user_message,
+                    last_bot_response,
                     next_action,
                     expires_at,
                     created_at,
@@ -823,29 +979,35 @@ class SQLiteChatStore:
         stage = str(state.get("stage") or ("collecting_slots" if waiting_for else "ready"))
         now_dt = datetime.now(timezone.utc)
         now = now_dt.isoformat()
-        expires_at = (now_dt + timedelta(hours=24)).isoformat()
+        expires_at = (now_dt + timedelta(hours=self.settings.conversation_state_ttl_hours)).isoformat()
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO conversation_states (
                     conversation_id,
                     current_intent,
+                    current_topic,
                     stage,
                     waiting_for,
                     collected_slots,
                     last_bot_question,
+                    last_user_message,
+                    last_bot_response,
                     next_action,
                     expires_at,
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(conversation_id) DO UPDATE SET
                     current_intent = excluded.current_intent,
+                    current_topic = excluded.current_topic,
                     stage = excluded.stage,
                     waiting_for = excluded.waiting_for,
                     collected_slots = excluded.collected_slots,
                     last_bot_question = excluded.last_bot_question,
+                    last_user_message = excluded.last_user_message,
+                    last_bot_response = excluded.last_bot_response,
                     next_action = excluded.next_action,
                     expires_at = excluded.expires_at,
                     updated_at = excluded.updated_at
@@ -853,10 +1015,13 @@ class SQLiteChatStore:
                 (
                     conversation_id,
                     state.get("current_intent"),
+                    state.get("current_topic"),
                     stage,
                     json.dumps(waiting_for, ensure_ascii=True),
                     json.dumps(collected_slots, ensure_ascii=True),
                     state.get("last_bot_question"),
+                    state.get("last_user_message"),
+                    state.get("last_bot_response"),
                     state.get("next_action"),
                     expires_at,
                     now,
@@ -954,6 +1119,34 @@ class SQLiteChatStore:
                 ORDER BY sort_order, speed_mbps, package_name
                 """
             ).fetchall()
+            coverage_areas = conn.execute(
+                """
+                SELECT
+                    area_code,
+                    area_name,
+                    city,
+                    district,
+                    coverage_status,
+                    notes,
+                    is_active,
+                    sort_order
+                FROM coverage_areas
+                WHERE is_active = 1
+                ORDER BY sort_order, area_name
+                """
+            ).fetchall()
+            payment_methods = conn.execute(
+                """
+                SELECT
+                    method_code,
+                    method_name,
+                    is_available,
+                    notes,
+                    sort_order
+                FROM payment_methods
+                ORDER BY sort_order, method_name
+                """
+            ).fetchall()
 
         return {
             "intents": [dict(row) for row in intents],
@@ -966,6 +1159,8 @@ class SQLiteChatStore:
                 self._decode_internet_package_row(dict(row))
                 for row in internet_packages
             ],
+            "coverage_areas": [dict(row) for row in coverage_areas],
+            "payment_methods": [dict(row) for row in payment_methods],
         }
 
     def list_intents_for_mapping(self) -> list[dict[str, Any]]:
@@ -1013,6 +1208,57 @@ class SQLiteChatStore:
                 """
             ).fetchall()
         return [self._decode_internet_package_row(dict(row)) for row in rows]
+
+    def save_conversation_log(
+        self,
+        *,
+        conversation_id: int,
+        message_id: int | None,
+        phone_number: str,
+        user_message: str,
+        detected_intent: str | None,
+        confidence: float | None,
+        entities: list[dict[str, Any]],
+        state_before: dict[str, Any] | None,
+        state_after: dict[str, Any] | None,
+        knowledge: dict[str, Any] | None,
+        bot_response: str,
+    ) -> None:
+        now = _utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO conversation_logs (
+                    conversation_id,
+                    message_id,
+                    phone_number,
+                    user_message,
+                    detected_intent,
+                    confidence,
+                    entities_json,
+                    state_before_json,
+                    state_after_json,
+                    knowledge_json,
+                    bot_response,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    conversation_id,
+                    message_id,
+                    phone_number,
+                    user_message,
+                    detected_intent,
+                    confidence,
+                    json.dumps(entities, ensure_ascii=True),
+                    json.dumps(state_before or {}, ensure_ascii=True),
+                    json.dumps(state_after or {}, ensure_ascii=True),
+                    json.dumps(knowledge or {}, ensure_ascii=True),
+                    bot_response,
+                    now,
+                ),
+            )
 
     def save_unprocessed_question(
         self,
@@ -1576,11 +1822,19 @@ class SQLiteChatStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _decode_json_value(self, value: Any, fallback: Any) -> Any:
         if value is None:

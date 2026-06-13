@@ -174,6 +174,8 @@ class ISPCSAgent:
         self.normalization_rules = catalog.get("normalization_rules", [])
         self.sample_utterances = catalog.get("sample_utterances", [])
         self.internet_packages = catalog.get("internet_packages", [])
+        self.coverage_areas = catalog.get("coverage_areas", [])
+        self.payment_methods = catalog.get("payment_methods", [])
         self.intent_mappings = {
             item["intent_code"]: self._decode_mapping(item)
             for item in catalog.get("intent_mappings", [])
@@ -262,6 +264,17 @@ class ISPCSAgent:
 
         candidates = self._rank_intents(normalized_message, language)
         intent = candidates[0] if candidates else self._unknown_intent()
+        if intent.intent_code == "unknown" and state.get("current_topic"):
+            reply_text = self._contextual_fallback_reply(state)
+            return AgentResponse(
+                language=language,
+                intent=intent,
+                candidates=candidates[:5],
+                entities=entities,
+                missing_slots=[],
+                reply_text=reply_text,
+                memory_update=self._contextual_memory_update(state, reply_text),
+            )
         missing_slots = self._soft_missing_slots(
             intent,
             self._missing_slots(intent.required_slots, entities),
@@ -669,6 +682,30 @@ class ISPCSAgent:
                         source="heuristic",
                     )
                 )
+        payment_aliases = {
+            "qris": "QRIS",
+            "transfer": "transfer bank",
+            "cash": "cash",
+            "tunai": "cash",
+            "ewallet": "e-wallet",
+            "e wallet": "e-wallet",
+            "wallet": "e-wallet",
+        }
+        for marker, value in payment_aliases.items():
+            if re.search(rf"\b{re.escape(marker)}\b", normalized_message):
+                key = ("payment_method", normalize_text(value))
+                if key not in seen:
+                    seen.add(key)
+                    entities.append(
+                        EntityMatch(
+                            entity_code="payment_method",
+                            entity_name="Metode pembayaran",
+                            value=value,
+                            normalized_value=normalize_text(value),
+                            source="heuristic",
+                        )
+                    )
+                break
         return entities
 
     def _missing_slots(self, required_slots: list[str], entities: list[EntityMatch]) -> list[str]:
@@ -839,17 +876,34 @@ class ISPCSAgent:
             if not slots.get("usage_need"):
                 waiting_for.append("usage_need")
         if intent.intent_code == "choose_package":
-            if not (slots.get("address") or slots.get("area")) and "address" not in waiting_for:
-                waiting_for.append("address")
+            for slot in ("customer_name", "phone_number", "address", "schedule_date"):
+                if not slots.get(slot) and slot not in waiting_for:
+                    waiting_for.append(slot)
 
         stage = "collecting_slots" if waiting_for else "ready"
         return {
             "current_intent": intent.intent_code,
+            "current_topic": self._topic_for_intent(intent.intent_code),
             "stage": stage,
             "waiting_for": waiting_for,
             "collected_slots": slots,
             "last_bot_question": reply_text,
             "next_action": intent.next_action,
+        }
+
+    def _contextual_memory_update(
+        self,
+        state: dict[str, Any],
+        reply_text: str,
+    ) -> dict[str, Any]:
+        return {
+            "current_intent": state.get("current_intent") or "unknown",
+            "current_topic": state.get("current_topic"),
+            "stage": state.get("stage") or "ready",
+            "waiting_for": self._decode_waiting_for(state.get("waiting_for")),
+            "collected_slots": self._decode_slot_state(state.get("collected_slots")),
+            "last_bot_question": reply_text,
+            "next_action": state.get("next_action"),
         }
 
     def _compose_memory_reply(
@@ -877,6 +931,10 @@ class ISPCSAgent:
             opener = f"Siap Kak, {' dan '.join(acknowledgements[:3])} saya catat."
 
         if not remaining_slots:
+            if current_intent == "ask_coverage" and (
+                filled_slots.get("address") or filled_slots.get("area")
+            ):
+                return self._coverage_reply(filled_slots.get("area") or filled_slots.get("address"))
             if current_intent in {"ask_installation", "confirm_order", "choose_package"}:
                 if current_intent == "confirm_order":
                     return f"{opener} Datanya sudah cukup untuk kami bantu proses pengecekan coverage dan pemasangan."
@@ -924,18 +982,12 @@ class ISPCSAgent:
         templates = {
             "show_package_list": self._package_overview_reply(entities),
             "show_price": self._price_overview_reply(entities, context),
-            "ask_or_validate_address": (
-                "Bisa Kak, saya bantu cek coverage. Untuk awal, sebutkan area/kecamatan dulu juga cukup; "
-                "alamat lengkap bisa nanti kalau mau dilanjutkan."
-            ),
+            "ask_or_validate_address": self._coverage_reply(self._area_context(entities)),
             "check_technician_schedule": (
                 "Bisa kami bantu jadwalkan teknisi. Mohon kirim alamat lengkap, paket yang dipilih, "
                 "dan preferensi waktu pemasangan."
             ),
-            "show_payment_methods": (
-                "Pembayaran bisa kami bantu arahkan sesuai kebijakan client: transfer bank, QRIS, "
-                "cash, e-wallet, atau virtual account bila tersedia."
-            ),
+            "show_payment_methods": self._payment_methods_reply(entities),
             "create_order": (
                 "Baik Kak, data utama sudah cukup untuk diproses. Saya teruskan sebagai permintaan pemasangan."
             ),
@@ -974,8 +1026,8 @@ class ISPCSAgent:
                 self._package_overview_reply(entities)
             ),
             "choose_package": (
-                f"Siap Kak, pilihan paketnya saya catat{context}. "
-                "Sebelum masuk data pelanggan, kita cek dulu area/alamat pemasangannya supaya paketnya sesuai coverage."
+                f"Siap Kak, saya catat pilihan {self._selected_package_label(entities)}{context}. "
+                "Untuk lanjut pemasangan, boleh kirim nama, nomor HP aktif, alamat lengkap, dan jadwal yang diinginkan?"
             ),
             "provide_address": (
                 "Terima kasih Kak, alamatnya saya terima. Saya bantu teruskan untuk cek coverage jaringan."
@@ -1013,6 +1065,46 @@ class ISPCSAgent:
             "Maaf Kak, saya belum nyambung. Kakak boleh tanya paket, harga, coverage, atau cara pemasangan; saya ikuti dulu pertanyaannya.",
         )
 
+    def _contextual_fallback_reply(self, state: dict[str, Any]) -> str:
+        topic = str(state.get("current_topic") or "")
+        if topic == "package_info":
+            return (
+                "Betul Kak, tadi kita sedang bahas paket dan harga. "
+                "Mau saya ringkas lagi per paket, atau Kakak ingin cek paket yang cocok untuk area tertentu?"
+            )
+        if topic == "coverage_check":
+            return (
+                "Iya Kak, konteksnya masih cek coverage. "
+                "Kakak bisa sebutkan kecamatan/kelurahan atau patokan terdekat supaya saya cekkan."
+            )
+        if topic == "payment":
+            return (
+                "Masih soal pembayaran ya Kak. "
+                "Kalau mau, sebutkan metodenya seperti QRIS, transfer, cash, atau e-wallet."
+            )
+        if topic == "order_confirmation":
+            return (
+                "Siap Kak, konteksnya masih proses pemasangan. "
+                "Kakak bisa lanjut kirim data yang belum ada, atau tanya paket/coverage dulu juga boleh."
+            )
+        return (
+            "Saya ikuti dulu konteks sebelumnya ya Kak. "
+            "Boleh tulis ulang bagian yang ingin dicek: paket, harga, coverage, pembayaran, atau pemasangan?"
+        )
+
+    def _topic_for_intent(self, intent_code: str) -> str:
+        return {
+            "ask_package": "package_info",
+            "ask_price": "package_info",
+            "compare_package": "package_info",
+            "choose_package": "order_confirmation",
+            "confirm_order": "order_confirmation",
+            "ask_coverage": "coverage_check",
+            "provide_address": "coverage_check",
+            "ask_payment_method": "payment",
+            "ask_installation_schedule": "installation_schedule",
+        }.get(intent_code, intent_code)
+
     def _package_overview_reply(self, entities: list[EntityMatch]) -> str:
         package_summary = self._format_package_summary(entities)
         if not package_summary:
@@ -1025,6 +1117,40 @@ class ISPCSAgent:
             f"Bisa Kak. {package_summary}\n\n"
             "Kalau Kakak mau, sebutkan kebutuhan pemakaian atau area pemasangannya supaya saya bantu pilihkan yang paling pas."
         )
+
+    def _payment_methods_reply(self, entities: list[EntityMatch]) -> str:
+        method = self._payment_method_context(entities)
+        if method:
+            matched = self._find_payment_method(method)
+            if matched and int(matched.get("is_available", 0) or 0) == 1:
+                return f"Bisa Kak, pembayaran lewat {matched['method_name']} tersedia ya."
+            return f"Untuk {method}, saya belum punya data ketersediaan pastinya Kak. Saya bantu cekkan dulu ya."
+
+        available = [
+            item["method_name"]
+            for item in self.payment_methods
+            if int(item.get("is_available", 0) or 0) == 1
+        ]
+        if not available:
+            return "Metode pembayaran belum tersedia di data kami Kak. Saya bantu cekkan dulu ya."
+        return f"Bisa Kak, pembayaran tersedia lewat {', '.join(available)}."
+
+    def _coverage_reply(self, area: str | None) -> str:
+        if not area:
+            return (
+                "Bisa Kak, saya bantu cek coverage. Untuk awal, sebutkan area/kecamatan dulu juga cukup; "
+                "alamat lengkap bisa nanti kalau mau dilanjutkan."
+            )
+        coverage = self._find_coverage_area(area)
+        if coverage and coverage.get("coverage_status") == "covered":
+            speed_range = self._package_speed_range()
+            suffix = f" Paket yang tersedia mulai dari {speed_range}." if speed_range else ""
+            return f"Untuk area {area} sudah tercover Kak.{suffix}"
+        if coverage and coverage.get("coverage_status") == "partial":
+            return f"Area {area} sebagian sudah tercover Kak. Boleh kirim patokan/alamat singkat supaya saya cek lebih tepat?"
+        if coverage and coverage.get("coverage_status") == "not_covered":
+            return f"Untuk area {area}, data kami menunjukkan belum tercover Kak."
+        return f"Untuk area {area}, saya belum punya data coverage pasti. Boleh kirim kecamatan/kelurahan atau patokan terdekat?"
 
     def _price_overview_reply(self, entities: list[EntityMatch], context: str) -> str:
         package_summary = self._format_package_summary(entities)
@@ -1106,6 +1232,15 @@ class ISPCSAgent:
         ]
         return matched or packages
 
+    def _selected_package_label(self, entities: list[EntityMatch]) -> str:
+        speed = self._speed_context(entities)
+        if speed:
+            for package in self.internet_packages:
+                if int(package.get("speed_mbps") or 0) == speed:
+                    return f"{package['package_name']} {speed} Mbps"
+            return f"paket {speed} Mbps"
+        return "paketnya"
+
     def _package_covers_area(self, package: dict[str, Any], normalized_area: str) -> bool:
         for area in package.get("areas") or []:
             normalized_package_area = normalize_text(str(area))
@@ -1121,6 +1256,62 @@ class ISPCSAgent:
             if entity.entity_code in {"area", "address"} and entity.value.strip():
                 return entity.value.strip()
         return None
+
+    def _payment_method_context(self, entities: list[EntityMatch]) -> str | None:
+        for entity in entities:
+            if entity.entity_code == "payment_method" and entity.value.strip():
+                return entity.value.strip()
+        return None
+
+    def _find_payment_method(self, value: str) -> dict[str, Any] | None:
+        normalized = normalize_text(value)
+        aliases = {
+            "transfer": "bank_transfer",
+            "transfer bank": "bank_transfer",
+            "bank transfer": "bank_transfer",
+            "qris": "qris",
+            "cash": "cash",
+            "tunai": "cash",
+            "e wallet": "ewallet",
+            "ewallet": "ewallet",
+            "wallet": "ewallet",
+        }
+        code = aliases.get(normalized, normalized.replace(" ", "_"))
+        for method in self.payment_methods:
+            if method.get("method_code") == code or normalize_text(str(method.get("method_name"))) == normalized:
+                return method
+        return None
+
+    def _find_coverage_area(self, value: str) -> dict[str, Any] | None:
+        normalized = normalize_text(value)
+        for area in self.coverage_areas:
+            candidates = [
+                area.get("area_name"),
+                area.get("city"),
+                area.get("district"),
+                area.get("area_code"),
+            ]
+            for candidate in candidates:
+                normalized_candidate = normalize_text(str(candidate or ""))
+                if normalized_candidate and (
+                    normalized_candidate in normalized or normalized in normalized_candidate
+                ):
+                    return area
+        return None
+
+    def _package_speed_range(self) -> str:
+        speeds = sorted(
+            {
+                int(package.get("speed_mbps") or 0)
+                for package in self.internet_packages
+                if int(package.get("is_active", 1) or 0) == 1
+            }
+        )
+        if not speeds:
+            return ""
+        if len(speeds) == 1:
+            return f"{speeds[0]} Mbps"
+        return f"{speeds[0]} Mbps sampai {speeds[-1]} Mbps"
 
     def _speed_context(self, entities: list[EntityMatch]) -> int | None:
         for entity in entities:

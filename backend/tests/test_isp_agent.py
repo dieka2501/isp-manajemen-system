@@ -183,6 +183,58 @@ def build_catalog() -> dict[str, list[dict[str, Any]]]:
                 "notes": None,
             },
         ],
+        "payment_methods": [
+            {
+                "method_code": "bank_transfer",
+                "method_name": "Transfer Bank",
+                "is_available": 1,
+                "notes": None,
+                "sort_order": 10,
+            },
+            {
+                "method_code": "qris",
+                "method_name": "QRIS",
+                "is_available": 1,
+                "notes": None,
+                "sort_order": 20,
+            },
+            {
+                "method_code": "cash",
+                "method_name": "Cash",
+                "is_available": 1,
+                "notes": None,
+                "sort_order": 30,
+            },
+            {
+                "method_code": "ewallet",
+                "method_name": "E-wallet",
+                "is_available": 1,
+                "notes": None,
+                "sort_order": 40,
+            },
+        ],
+        "coverage_areas": [
+            {
+                "area_code": "conblong",
+                "area_name": "Conblong",
+                "city": "Kota Bandung",
+                "district": "Coblong",
+                "coverage_status": "covered",
+                "notes": None,
+                "is_active": 1,
+                "sort_order": 10,
+            },
+            {
+                "area_code": "soreang",
+                "area_name": "Soreang",
+                "city": "Kab Bandung",
+                "district": "Soreang",
+                "coverage_status": "covered",
+                "notes": None,
+                "is_active": 1,
+                "sort_order": 20,
+            },
+        ],
     }
 
 
@@ -220,11 +272,77 @@ class ISPCSAgentTests(unittest.TestCase):
         self.assertIn("Paket Premium", response.reply_text)
         self.assertNotIn("Paket Office", response.reply_text)
 
+    def test_package_price_followup_uses_speed_specific_package(self) -> None:
+        response = self.agent.answer(
+            "Yang 30 Mbps berapa?",
+            conversation_state={
+                "current_intent": "ask_package",
+                "current_topic": "package_info",
+                "waiting_for": [],
+                "collected_slots": {},
+                "last_bot_response": "Ada Paket Hemat, Keluarga, Premium, dan Office.",
+            },
+        )
+
+        self.assertEqual(response.intent.intent_code, "ask_price")
+        self.assertIn("Paket Keluarga", response.reply_text)
+        self.assertIn("Rp 200.000/bulan", response.reply_text)
+        self.assertNotIn("Paket Hemat", response.reply_text)
+
     def test_matches_coverage_from_network_phrase(self) -> None:
         response = self.agent.answer("di cigadung udah masuk jaringan belum?")
 
         self.assertEqual(response.intent.intent_code, "ask_coverage")
         self.assertNotIn("Maaf Kak", response.reply_text)
+
+    def test_coverage_followup_uses_coverage_topic(self) -> None:
+        response = self.agent.answer(
+            "Conblong",
+            conversation_state={
+                "current_intent": "ask_coverage",
+                "current_topic": "coverage_check",
+                "waiting_for": ["address"],
+                "collected_slots": {"city": "Bandung"},
+                "last_bot_response": "Boleh sebutkan kecamatan atau kelurahannya dulu Kak.",
+            },
+        )
+
+        self.assertEqual(response.intent.intent_code, "ask_coverage")
+        self.assertIn("sudah tercover", response.reply_text)
+        self.assertNotIn("alamat Conblong saya catat", response.reply_text)
+
+    def test_payment_followup_does_not_repeat_full_payment_list(self) -> None:
+        response = self.agent.answer(
+            "Kalau QRIS bisa?",
+            conversation_state={
+                "current_intent": "ask_payment_method",
+                "current_topic": "payment",
+                "waiting_for": [],
+                "collected_slots": {},
+                "last_bot_response": "Bisa Kak, pembayaran bisa transfer bank, QRIS, cash, atau e-wallet.",
+            },
+        )
+
+        self.assertEqual(response.intent.intent_code, "ask_payment_method")
+        self.assertIn("QRIS", response.reply_text)
+        self.assertNotIn("Transfer Bank, QRIS, Cash", response.reply_text)
+
+    def test_unknown_followup_uses_previous_package_topic(self) -> None:
+        response = self.agent.answer(
+            "Kan tadi udah dijawab",
+            conversation_state={
+                "current_intent": "ask_package",
+                "current_topic": "package_info",
+                "waiting_for": [],
+                "collected_slots": {},
+                "last_bot_response": "Sementara paket yang tersedia: Paket Hemat, Keluarga, Premium, Office.",
+            },
+        )
+
+        self.assertEqual(response.intent.intent_code, "unknown")
+        self.assertIn("paket", response.reply_text.lower())
+        self.assertNotIn("belum nyambung", response.reply_text.lower())
+        self.assertEqual(response.memory_update["current_topic"], "package_info")
 
     def test_matches_sundanese_package_sample(self) -> None:
         response = self.agent.answer("paketna aya naon wae kang?")
@@ -273,6 +391,15 @@ class ISPCSAgentTests(unittest.TestCase):
         self.assertEqual(response.memory_update["collected_slots"]["phone_number"], "087777777")
         self.assertEqual(response.memory_update["collected_slots"]["address"], "Bandung")
         self.assertNotIn("Maaf Kak", response.reply_text)
+
+    def test_confirm_package_sets_order_state(self) -> None:
+        response = self.agent.answer("Saya ambil paket 50 Mbps.")
+
+        self.assertEqual(response.intent.intent_code, "choose_package")
+        self.assertIn("Paket Premium 50 Mbps", response.reply_text)
+        self.assertIn("nama", response.reply_text.lower())
+        self.assertEqual(response.memory_update["current_topic"], "order_confirmation")
+        self.assertIn("speed", response.memory_update["collected_slots"])
 
 
 if __name__ == "__main__":
