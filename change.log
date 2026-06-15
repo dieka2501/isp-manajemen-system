@@ -1,3 +1,9 @@
+2026-06-15
+- Migrated SQLite chat, learning, stock, and catalog tables to carry explicit `client_id` and `device_id` scope keys for multi-client/multi-device operation.
+- Added schema backfill for existing SQLite data so messages, conversation state, logs, unprocessed questions, stock products, and seeded catalogs resolve to the correct client/device scope.
+- Updated chatbot catalog retrieval, stock APIs, package listing, conversation listing, and message listing to support client/device scoped access.
+- Added tests for scoped table columns, per-device package catalog seeding, and stock isolation across devices.
+
 2026-06-13
 - Added an LLM orchestration layer for incoming WhatsApp chats: native intent/entity detection, conversation state, SQLite knowledge retrieval, guarded OpenAI response generation, state persistence, and send flow.
 - Added SQLite `coverage_areas`, `payment_methods`, and `conversation_logs` tables with default seeds for coverage/payment context and auditability.

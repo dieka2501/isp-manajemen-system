@@ -12,10 +12,13 @@ from app.services.chat_store import SQLiteChatStore
 
 
 class SQLitePackageCatalogTests(unittest.TestCase):
+    def _new_store(self, temp_dir: str) -> SQLiteChatStore:
+        db_path = str(Path(temp_dir) / "chat.sqlite3")
+        return SQLiteChatStore(Settings(chat_database_path=db_path))
+
     def test_initialize_seeds_default_internet_packages(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = str(Path(temp_dir) / "chat.sqlite3")
-            store = SQLiteChatStore(Settings(chat_database_path=db_path))
+            store = self._new_store(temp_dir)
 
             store.initialize()
             packages = store.list_internet_packages()
@@ -29,8 +32,7 @@ class SQLitePackageCatalogTests(unittest.TestCase):
 
     def test_initialize_seeds_coverage_and_payment_catalogs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = str(Path(temp_dir) / "chat.sqlite3")
-            store = SQLiteChatStore(Settings(chat_database_path=db_path))
+            store = self._new_store(temp_dir)
 
             store.initialize()
             catalog = store.get_intent_agent_catalog()
@@ -41,6 +43,88 @@ class SQLitePackageCatalogTests(unittest.TestCase):
         self.assertIn("Conblong", coverage_names)
         self.assertIn("QRIS", payment_names)
         self.assertIn("Transfer Bank", payment_names)
+
+    def test_scoped_tables_have_client_and_device_columns(self) -> None:
+        scoped_tables = {
+            "messages",
+            "stock_products",
+            "internet_packages",
+            "coverage_areas",
+            "payment_methods",
+            "intents",
+            "languages",
+            "keywords",
+            "entities",
+            "entity_keywords",
+            "sample_utterances",
+            "normalization_rules",
+            "intent_mappings",
+            "conversation_states",
+            "unprocessed_questions",
+            "conversation_logs",
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = self._new_store(temp_dir)
+            store.initialize()
+
+            with store._connect() as conn:
+                table_columns = {
+                    table: {
+                        str(row["name"])
+                        for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+                    }
+                    for table in scoped_tables
+                }
+
+        for table, columns in table_columns.items():
+            self.assertIn("client_id", columns, table)
+            self.assertIn("device_id", columns, table)
+
+    def test_device_scoped_catalog_and_stock_are_isolated(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = self._new_store(temp_dir)
+            store.initialize()
+            store.create_account(name="ISP A", slug="isp-a")
+            client = store.create_client(account_slug="isp-a", name="Client A")
+            device_one = store.register_device(
+                client_id=client["id"],
+                device_identifier="device-a-1",
+                device_name="Device A1",
+                outbound_token=None,
+            )
+            device_two = store.register_device(
+                client_id=client["id"],
+                device_identifier="device-a-2",
+                device_name="Device A2",
+                outbound_token=None,
+            )
+
+            packages = store.list_internet_packages(
+                client_id=client["id"],
+                device_id=device_one["id"],
+            )
+            stock_one = store.upsert_stock_product(
+                client_id=client["id"],
+                device_id=device_one["id"],
+                product_name="Router Fiber",
+                stock=3,
+            )
+            stock_two = store.upsert_stock_product(
+                client_id=client["id"],
+                device_id=device_two["id"],
+                product_name="Router Fiber",
+                stock=7,
+            )
+            device_one_stock = store.list_stock_products(
+                client_id=client["id"],
+                device_id=device_one["id"],
+            )
+
+        self.assertEqual(len(packages), 4)
+        self.assertEqual({package["device_id"] for package in packages}, {device_one["id"]})
+        self.assertNotEqual(stock_one["id"], stock_two["id"])
+        self.assertEqual(device_one_stock[0]["stock"], 3)
+        self.assertEqual(device_one_stock[0]["device_id"], device_one["id"])
 
 
 if __name__ == "__main__":

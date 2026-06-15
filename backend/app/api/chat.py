@@ -34,6 +34,8 @@ class DeviceRegisterRequest(BaseModel):
 class StockProductUpsertRequest(BaseModel):
     client_id: int | None = None
     client_token: str | None = None
+    device_id: int | None = None
+    device_identifier: str | None = None
     product_name: str = Field(min_length=1)
     product_type: str | None = None
     stock: int = Field(ge=0)
@@ -119,6 +121,8 @@ def register_device(payload: DeviceRegisterRequest) -> dict[str, object]:
 def list_stock_products(
     client_id: int | None = Query(default=None),
     client_token: str | None = Query(default=None),
+    device_id: int | None = Query(default=None),
+    device_identifier: str | None = Query(default=None),
     query: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> dict[str, object]:
@@ -126,6 +130,8 @@ def list_stock_products(
         items = _store().list_stock_products(
             client_id=client_id,
             client_token=client_token,
+            device_id=device_id,
+            device_identifier=device_identifier,
             query=query,
             limit=limit,
         )
@@ -141,11 +147,18 @@ def upsert_stock_product(payload: StockProductUpsertRequest) -> dict[str, object
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Provide `client_id` or `client_token` to save stock product.",
         )
+    if payload.device_id is None and payload.device_identifier is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Provide `device_id` or `device_identifier` to save stock product.",
+        )
 
     try:
         item = _store().upsert_stock_product(
             client_id=payload.client_id,
             client_token=payload.client_token,
+            device_id=payload.device_id,
+            device_identifier=payload.device_identifier,
             product_name=payload.product_name,
             product_type=payload.product_type,
             stock=payload.stock,
@@ -157,8 +170,24 @@ def upsert_stock_product(payload: StockProductUpsertRequest) -> dict[str, object
 
 
 @chat_router.get("/internet-packages")
-def list_internet_packages(active_only: bool = Query(default=True)) -> dict[str, object]:
-    return {"items": _store().list_internet_packages(active_only=active_only)}
+def list_internet_packages(
+    active_only: bool = Query(default=True),
+    client_id: int | None = Query(default=None),
+    client_token: str | None = Query(default=None),
+    device_id: int | None = Query(default=None),
+    device_identifier: str | None = Query(default=None),
+) -> dict[str, object]:
+    try:
+        items = _store().list_internet_packages(
+            active_only=active_only,
+            client_id=client_id,
+            client_token=client_token,
+            device_id=device_id,
+            device_identifier=device_identifier,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return {"items": items}
 
 
 @chat_router.post("/agent/preview")
@@ -234,13 +263,44 @@ def suggest_learning_mapping(question_id: int) -> dict[str, object]:
 
 
 @chat_router.get("/conversations")
-def list_conversations(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, object]:
-    return {"items": _store().list_conversations(limit=limit)}
+def list_conversations(
+    limit: int = Query(default=50, ge=1, le=200),
+    client_id: int | None = Query(default=None),
+    client_token: str | None = Query(default=None),
+    device_id: int | None = Query(default=None),
+    device_identifier: str | None = Query(default=None),
+) -> dict[str, object]:
+    try:
+        items = _store().list_conversations(
+            limit=limit,
+            client_id=client_id,
+            client_token=client_token,
+            device_id=device_id,
+            device_identifier=device_identifier,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return {"items": items}
 
 
 @chat_router.get("/conversations/{conversation_id}/messages")
 def list_messages(
     conversation_id: int,
     limit: int = Query(default=100, ge=1, le=500),
+    client_id: int | None = Query(default=None),
+    client_token: str | None = Query(default=None),
+    device_id: int | None = Query(default=None),
+    device_identifier: str | None = Query(default=None),
 ) -> dict[str, object]:
-    return {"items": _store().list_messages(conversation_id=conversation_id, limit=limit)}
+    try:
+        items = _store().list_messages(
+            conversation_id=conversation_id,
+            limit=limit,
+            client_id=client_id,
+            client_token=client_token,
+            device_id=device_id,
+            device_identifier=device_identifier,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return {"items": items}
