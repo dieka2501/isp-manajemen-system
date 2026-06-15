@@ -767,6 +767,7 @@ class SQLiteChatStore:
         self._seed_payment_methods(conn, client_id=client_id, device_id=device_id)
 
     def _ensure_schema_migrations(self, conn: sqlite3.Connection) -> None:
+        conn.execute("PRAGMA foreign_keys = OFF")
         scoped_tables = (
             "messages",
             "stock_products",
@@ -798,7 +799,87 @@ class SQLiteChatStore:
             default_client_id=default_client_id,
             default_device_id=default_device_id,
         )
+        self._rebuild_legacy_scoped_unique_tables(conn)
+        self._ensure_scope_unique_indexes(conn)
         self._ensure_scope_indexes(conn)
+        conn.execute("PRAGMA foreign_keys = ON")
+
+    def _rebuild_legacy_scoped_unique_tables(self, conn: sqlite3.Connection) -> None:
+        scoped_uniques = {
+            "stock_products": ("client_id", "device_id", "product_name", "product_type"),
+            "internet_packages": ("client_id", "device_id", "package_code"),
+            "coverage_areas": ("client_id", "device_id", "area_code"),
+            "payment_methods": ("client_id", "device_id", "method_code"),
+            "intents": ("client_id", "device_id", "intent_code"),
+            "languages": ("client_id", "device_id", "lang_code"),
+            "keywords": ("client_id", "device_id", "intent_code", "lang_code", "keyword"),
+            "entities": ("client_id", "device_id", "entity_code"),
+            "entity_keywords": ("client_id", "device_id", "entity_code", "lang_code", "keyword"),
+            "sample_utterances": ("client_id", "device_id", "intent_code", "lang_code", "utterance"),
+            "normalization_rules": ("client_id", "device_id", "lang_code", "source_text"),
+            "intent_mappings": ("client_id", "device_id", "intent_code"),
+        }
+        for table_name, unique_columns in scoped_uniques.items():
+            if self._has_unique_columns(conn, table_name, unique_columns):
+                continue
+            self._rebuild_table_without_legacy_uniques(conn, table_name)
+
+    def _has_unique_columns(
+        self,
+        conn: sqlite3.Connection,
+        table_name: str,
+        expected_columns: tuple[str, ...],
+    ) -> bool:
+        for index in conn.execute(f"PRAGMA index_list({table_name})").fetchall():
+            if not int(index["unique"] or 0):
+                continue
+            index_columns = tuple(
+                str(row["name"])
+                for row in conn.execute(f"PRAGMA index_info({index['name']})").fetchall()
+            )
+            if index_columns == expected_columns:
+                return True
+        return False
+
+    def _rebuild_table_without_legacy_uniques(
+        self,
+        conn: sqlite3.Connection,
+        table_name: str,
+    ) -> None:
+        legacy_table = f"{table_name}__legacy_scope_migration"
+        columns = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        if not columns:
+            return
+
+        column_defs = []
+        column_names = []
+        for column in columns:
+            column_name = str(column["name"])
+            column_type = str(column["type"] or "TEXT")
+            column_names.append(column_name)
+            if column_name == "id" and int(column["pk"] or 0):
+                column_defs.append("id INTEGER PRIMARY KEY AUTOINCREMENT")
+                continue
+
+            definition = f"{column_name} {column_type}".strip()
+            if int(column["notnull"] or 0):
+                definition += " NOT NULL"
+            if column["dflt_value"] is not None:
+                definition += f" DEFAULT {column['dflt_value']}"
+            column_defs.append(definition)
+
+        column_sql = ", ".join(column_names)
+        conn.execute(f"DROP TABLE IF EXISTS {legacy_table}")
+        conn.execute(f"ALTER TABLE {table_name} RENAME TO {legacy_table}")
+        conn.execute(f"CREATE TABLE {table_name} ({', '.join(column_defs)})")
+        conn.execute(
+            f"""
+            INSERT OR IGNORE INTO {table_name} ({column_sql})
+            SELECT {column_sql}
+            FROM {legacy_table}
+            """
+        )
+        conn.execute(f"DROP TABLE {legacy_table}")
 
     def _backfill_scope_columns(
         self,
@@ -917,6 +998,36 @@ class SQLiteChatStore:
                 ON unprocessed_questions (client_id, device_id, status);
             CREATE INDEX IF NOT EXISTS idx_conversation_logs_scope
                 ON conversation_logs (client_id, device_id, created_at);
+            """
+        )
+
+    def _ensure_scope_unique_indexes(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_stock_products_scope_product
+                ON stock_products (client_id, device_id, product_name, product_type);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_internet_packages_scope_code
+                ON internet_packages (client_id, device_id, package_code);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_coverage_areas_scope_code
+                ON coverage_areas (client_id, device_id, area_code);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_methods_scope_code
+                ON payment_methods (client_id, device_id, method_code);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_intents_scope_code
+                ON intents (client_id, device_id, intent_code);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_languages_scope_code
+                ON languages (client_id, device_id, lang_code);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_keywords_scope_keyword
+                ON keywords (client_id, device_id, intent_code, lang_code, keyword);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_entities_scope_code
+                ON entities (client_id, device_id, entity_code);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_entity_keywords_scope_keyword
+                ON entity_keywords (client_id, device_id, entity_code, lang_code, keyword);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_sample_utterances_scope_utterance
+                ON sample_utterances (client_id, device_id, intent_code, lang_code, utterance);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_normalization_rules_scope_source
+                ON normalization_rules (client_id, device_id, lang_code, source_text);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_intent_mappings_scope_intent
+                ON intent_mappings (client_id, device_id, intent_code);
             """
         )
 
