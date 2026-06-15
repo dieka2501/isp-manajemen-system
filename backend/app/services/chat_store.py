@@ -800,6 +800,7 @@ class SQLiteChatStore:
             default_device_id=default_device_id,
         )
         self._rebuild_legacy_scoped_unique_tables(conn)
+        self._rebuild_tables_with_legacy_foreign_keys(conn)
         self._ensure_scope_unique_indexes(conn)
         self._ensure_scope_indexes(conn)
         conn.execute("PRAGMA foreign_keys = ON")
@@ -824,6 +825,11 @@ class SQLiteChatStore:
                 continue
             self._rebuild_table_without_legacy_uniques(conn, table_name)
 
+    def _rebuild_tables_with_legacy_foreign_keys(self, conn: sqlite3.Connection) -> None:
+        for table_name in ("conversation_states", "unprocessed_questions"):
+            if self._table_has_legacy_foreign_key(conn, table_name):
+                self._rebuild_table_without_legacy_uniques(conn, table_name)
+
     def _has_unique_columns(
         self,
         conn: sqlite3.Connection,
@@ -841,6 +847,17 @@ class SQLiteChatStore:
                 return True
         return False
 
+    def _table_has_legacy_foreign_key(
+        self,
+        conn: sqlite3.Connection,
+        table_name: str,
+    ) -> bool:
+        for row in conn.execute(f"PRAGMA foreign_key_list({table_name})").fetchall():
+            parent_table = str(row["table"] or "")
+            if parent_table.endswith("__legacy_scope_migration"):
+                return True
+        return False
+
     def _rebuild_table_without_legacy_uniques(
         self,
         conn: sqlite3.Connection,
@@ -853,12 +870,25 @@ class SQLiteChatStore:
 
         column_defs = []
         column_names = []
+        primary_key_columns = [
+            (int(column["pk"]), str(column["name"]))
+            for column in columns
+            if int(column["pk"] or 0) > 0
+        ]
+        single_primary_key = (
+            primary_key_columns[0][1]
+            if len(primary_key_columns) == 1
+            else None
+        )
         for column in columns:
             column_name = str(column["name"])
             column_type = str(column["type"] or "TEXT")
             column_names.append(column_name)
-            if column_name == "id" and int(column["pk"] or 0):
-                column_defs.append("id INTEGER PRIMARY KEY AUTOINCREMENT")
+            if single_primary_key == column_name:
+                if column_name == "id":
+                    column_defs.append("id INTEGER PRIMARY KEY AUTOINCREMENT")
+                else:
+                    column_defs.append(f"{column_name} {column_type} PRIMARY KEY")
                 continue
 
             definition = f"{column_name} {column_type}".strip()
@@ -867,6 +897,13 @@ class SQLiteChatStore:
             if column["dflt_value"] is not None:
                 definition += f" DEFAULT {column['dflt_value']}"
             column_defs.append(definition)
+
+        if len(primary_key_columns) > 1:
+            ordered_primary_keys = ", ".join(
+                column_name
+                for _, column_name in sorted(primary_key_columns)
+            )
+            column_defs.append(f"PRIMARY KEY ({ordered_primary_keys})")
 
         column_sql = ", ".join(column_names)
         conn.execute(f"DROP TABLE IF EXISTS {legacy_table}")
@@ -1028,6 +1065,8 @@ class SQLiteChatStore:
                 ON normalization_rules (client_id, device_id, lang_code, source_text);
             CREATE UNIQUE INDEX IF NOT EXISTS uq_intent_mappings_scope_intent
                 ON intent_mappings (client_id, device_id, intent_code);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_unprocessed_questions_message_id
+                ON unprocessed_questions (message_id);
             """
         )
 
