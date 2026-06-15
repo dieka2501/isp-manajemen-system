@@ -208,6 +208,104 @@ class SQLitePackageCatalogTests(unittest.TestCase):
         self.assertEqual({package["device_id"] for package in packages_two}, {device_two["id"]})
         self.assertNotEqual(stock_one["id"], stock_two["id"])
 
+    def test_legacy_intent_foreign_keys_are_rebuilt_after_parent_scope_migration(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "chat.sqlite3")
+            with sqlite3.connect(db_path) as conn:
+                conn.executescript(
+                    """
+                    CREATE TABLE intents (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        intent_code TEXT NOT NULL UNIQUE,
+                        intent_name TEXT NOT NULL,
+                        description TEXT
+                    );
+
+                    CREATE TABLE conversation_states (
+                        conversation_id INTEGER PRIMARY KEY,
+                        current_intent TEXT,
+                        stage TEXT NOT NULL DEFAULT 'idle',
+                        waiting_for TEXT NOT NULL DEFAULT '[]',
+                        collected_slots TEXT NOT NULL DEFAULT '{}',
+                        last_bot_question TEXT,
+                        next_action TEXT,
+                        expires_at TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE,
+                        FOREIGN KEY (current_intent) REFERENCES intents (intent_code)
+                    );
+
+                    CREATE TABLE unprocessed_questions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        client_id INTEGER NOT NULL,
+                        conversation_id INTEGER NOT NULL,
+                        message_id INTEGER NOT NULL UNIQUE,
+                        language TEXT NOT NULL,
+                        message_text TEXT NOT NULL,
+                        normalized_text TEXT,
+                        detected_intent_code TEXT,
+                        confidence REAL NOT NULL DEFAULT 0,
+                        reason TEXT NOT NULL,
+                        candidates TEXT,
+                        entities TEXT,
+                        status TEXT NOT NULL DEFAULT 'pending'
+                            CHECK(status IN ('pending', 'mapped', 'ignored')),
+                        mapped_intent_code TEXT,
+                        mapped_type TEXT,
+                        reviewer_notes TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        resolved_at TEXT,
+                        FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                        FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE,
+                        FOREIGN KEY (message_id) REFERENCES messages (id) ON DELETE CASCADE,
+                        FOREIGN KEY (mapped_intent_code) REFERENCES intents (intent_code)
+                    );
+                    """
+                )
+
+            store = SQLiteChatStore(Settings(chat_database_path=db_path))
+            store.initialize()
+            stored = store.save_incoming_message(
+                {
+                    "sender": "08123456789",
+                    "name": "Legacy FK Tester",
+                    "message": "tes paket internet",
+                    "device": "legacy-fk-device",
+                }
+            )
+
+            store.upsert_conversation_state(
+                conversation_id=stored.conversation_id,
+                state={
+                    "current_intent": "ask_package",
+                    "current_topic": "package_info",
+                    "waiting_for": [],
+                    "collected_slots": {},
+                    "last_bot_question": "Ada paket apa?",
+                },
+            )
+            store.save_unprocessed_question(
+                stored_message=stored,
+                analysis={
+                    "language": "id",
+                    "intent": {"intent_code": "unknown", "confidence": 0.1},
+                    "candidates": [],
+                    "entities": [],
+                },
+                reason="unknown_intent",
+            )
+            question = store.list_unprocessed_questions(limit=1)[0]
+            mapped = store.map_unprocessed_question(
+                question_id=int(question["id"]),
+                intent_code="ask_package",
+                mapping_type="sample",
+            )
+
+        self.assertEqual(mapped["status"], "mapped")
+        self.assertEqual(mapped["mapped_intent_code"], "ask_package")
+
 
 if __name__ == "__main__":
     unittest.main()
