@@ -19,6 +19,9 @@ from app.services.intent_seed import (
     DEFAULT_PAYMENT_METHODS,
 )
 
+DEFAULT_CATALOG_EXTERNAL_REF = "__default_catalog__"
+DEFAULT_CATALOG_DEVICE_IDENTIFIER = "__default_catalog_device__"
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -133,6 +136,8 @@ class SQLiteChatStore:
 
                 CREATE TABLE IF NOT EXISTS messages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
                     conversation_id INTEGER NOT NULL,
                     direction TEXT NOT NULL CHECK(direction IN ('incoming', 'outgoing')),
                     message_text TEXT NOT NULL,
@@ -141,12 +146,15 @@ class SQLiteChatStore:
                     reply_text TEXT,
                     raw_payload TEXT,
                     created_at TEXT NOT NULL,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
                     FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE
                 );
 
                 CREATE TABLE IF NOT EXISTS stock_products (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
                     product_name TEXT NOT NULL,
                     product_type TEXT,
                     stock INTEGER NOT NULL DEFAULT 0,
@@ -154,12 +162,15 @@ class SQLiteChatStore:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
-                    UNIQUE (client_id, product_name, product_type)
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
+                    UNIQUE (client_id, device_id, product_name, product_type)
                 );
 
                 CREATE TABLE IF NOT EXISTS internet_packages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    package_code TEXT NOT NULL UNIQUE,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
+                    package_code TEXT NOT NULL,
                     package_name TEXT NOT NULL,
                     speed_mbps INTEGER NOT NULL,
                     monthly_price INTEGER NOT NULL,
@@ -171,12 +182,17 @@ class SQLiteChatStore:
                     sort_order INTEGER NOT NULL DEFAULT 100,
                     notes TEXT,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
+                    UNIQUE (client_id, device_id, package_code)
                 );
 
                 CREATE TABLE IF NOT EXISTS coverage_areas (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    area_code TEXT NOT NULL UNIQUE,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
+                    area_code TEXT NOT NULL,
                     area_name TEXT NOT NULL,
                     city TEXT,
                     district TEXT,
@@ -186,35 +202,55 @@ class SQLiteChatStore:
                     is_active INTEGER NOT NULL DEFAULT 1,
                     sort_order INTEGER NOT NULL DEFAULT 100,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
+                    UNIQUE (client_id, device_id, area_code)
                 );
 
                 CREATE TABLE IF NOT EXISTS payment_methods (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    method_code TEXT NOT NULL UNIQUE,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
+                    method_code TEXT NOT NULL,
                     method_name TEXT NOT NULL,
                     is_available INTEGER NOT NULL DEFAULT 1,
                     notes TEXT,
                     sort_order INTEGER NOT NULL DEFAULT 100,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
+                    UNIQUE (client_id, device_id, method_code)
                 );
 
                 CREATE TABLE IF NOT EXISTS intents (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    intent_code TEXT NOT NULL UNIQUE,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
+                    intent_code TEXT NOT NULL,
                     intent_name TEXT NOT NULL,
-                    description TEXT
+                    description TEXT,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
+                    UNIQUE (client_id, device_id, intent_code)
                 );
 
                 CREATE TABLE IF NOT EXISTS languages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    lang_code TEXT NOT NULL UNIQUE,
-                    lang_name TEXT NOT NULL
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
+                    lang_code TEXT NOT NULL,
+                    lang_name TEXT NOT NULL,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
+                    UNIQUE (client_id, device_id, lang_code)
                 );
 
                 CREATE TABLE IF NOT EXISTS keywords (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
                     intent_code TEXT NOT NULL,
                     lang_code TEXT NOT NULL,
                     keyword TEXT NOT NULL,
@@ -222,64 +258,82 @@ class SQLiteChatStore:
                     formality_level TEXT,
                     weight INTEGER DEFAULT 1,
                     notes TEXT,
-                    FOREIGN KEY (intent_code) REFERENCES intents (intent_code),
-                    FOREIGN KEY (lang_code) REFERENCES languages (lang_code),
-                    UNIQUE (intent_code, lang_code, keyword)
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
+                    UNIQUE (client_id, device_id, intent_code, lang_code, keyword)
                 );
 
                 CREATE TABLE IF NOT EXISTS entities (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    entity_code TEXT NOT NULL UNIQUE,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
+                    entity_code TEXT NOT NULL,
                     entity_name TEXT NOT NULL,
-                    description TEXT
+                    description TEXT,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
+                    UNIQUE (client_id, device_id, entity_code)
                 );
 
                 CREATE TABLE IF NOT EXISTS entity_keywords (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
                     entity_code TEXT NOT NULL,
                     lang_code TEXT NOT NULL,
                     keyword TEXT NOT NULL,
                     normalized_keyword TEXT,
                     notes TEXT,
-                    FOREIGN KEY (entity_code) REFERENCES entities (entity_code),
-                    FOREIGN KEY (lang_code) REFERENCES languages (lang_code),
-                    UNIQUE (entity_code, lang_code, keyword)
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
+                    UNIQUE (client_id, device_id, entity_code, lang_code, keyword)
                 );
 
                 CREATE TABLE IF NOT EXISTS sample_utterances (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
                     intent_code TEXT NOT NULL,
                     lang_code TEXT NOT NULL,
                     utterance TEXT NOT NULL,
                     formality_level TEXT,
                     expected_entities TEXT,
                     notes TEXT,
-                    FOREIGN KEY (intent_code) REFERENCES intents (intent_code),
-                    FOREIGN KEY (lang_code) REFERENCES languages (lang_code),
-                    UNIQUE (intent_code, lang_code, utterance)
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
+                    UNIQUE (client_id, device_id, intent_code, lang_code, utterance)
                 );
 
                 CREATE TABLE IF NOT EXISTS normalization_rules (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
                     lang_code TEXT NOT NULL,
                     source_text TEXT NOT NULL,
                     normalized_text TEXT NOT NULL,
                     notes TEXT,
-                    FOREIGN KEY (lang_code) REFERENCES languages (lang_code),
-                    UNIQUE (lang_code, source_text)
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
+                    UNIQUE (client_id, device_id, lang_code, source_text)
                 );
 
                 CREATE TABLE IF NOT EXISTS intent_mappings (
-                    intent_code TEXT PRIMARY KEY,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
+                    intent_code TEXT NOT NULL,
                     description TEXT,
                     required_slots TEXT NOT NULL DEFAULT '[]',
                     optional_slots TEXT NOT NULL DEFAULT '[]',
                     next_action TEXT,
-                    FOREIGN KEY (intent_code) REFERENCES intents (intent_code)
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
+                    PRIMARY KEY (client_id, device_id, intent_code)
                 );
 
                 CREATE TABLE IF NOT EXISTS conversation_states (
                     conversation_id INTEGER PRIMARY KEY,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
                     current_intent TEXT,
                     current_topic TEXT,
                     stage TEXT NOT NULL DEFAULT 'idle',
@@ -292,13 +346,16 @@ class SQLiteChatStore:
                     expires_at TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
                     FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE,
-                    FOREIGN KEY (current_intent) REFERENCES intents (intent_code)
+                    UNIQUE (client_id, device_id, conversation_id)
                 );
 
                 CREATE TABLE IF NOT EXISTS unprocessed_questions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
                     conversation_id INTEGER NOT NULL,
                     message_id INTEGER NOT NULL UNIQUE,
                     language TEXT NOT NULL,
@@ -318,13 +375,15 @@ class SQLiteChatStore:
                     updated_at TEXT NOT NULL,
                     resolved_at TEXT,
                     FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
                     FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE,
-                    FOREIGN KEY (message_id) REFERENCES messages (id) ON DELETE CASCADE,
-                    FOREIGN KEY (mapped_intent_code) REFERENCES intents (intent_code)
+                    FOREIGN KEY (message_id) REFERENCES messages (id) ON DELETE CASCADE
                 );
 
                 CREATE TABLE IF NOT EXISTS conversation_logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
                     conversation_id INTEGER NOT NULL,
                     message_id INTEGER,
                     phone_number TEXT NOT NULL,
@@ -337,6 +396,8 @@ class SQLiteChatStore:
                     knowledge_json TEXT,
                     bot_response TEXT,
                     created_at TEXT NOT NULL,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
                     FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE,
                     FOREIGN KEY (message_id) REFERENCES messages (id) ON DELETE SET NULL
                 );
@@ -344,6 +405,7 @@ class SQLiteChatStore:
                 CREATE INDEX IF NOT EXISTS idx_clients_account_id ON clients (account_id);
                 CREATE INDEX IF NOT EXISTS idx_devices_client_id ON devices (client_id);
                 CREATE INDEX IF NOT EXISTS idx_conversations_client_id ON conversations (client_id);
+                CREATE INDEX IF NOT EXISTS idx_conversations_device_id ON conversations (device_id);
                 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages (conversation_id);
                 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages (created_at);
                 CREATE INDEX IF NOT EXISTS idx_stock_products_client_id
@@ -375,12 +437,114 @@ class SQLiteChatStore:
                 """
             )
             self._ensure_schema_migrations(conn)
-            self._seed_intent_catalog(conn)
-            self._seed_internet_packages(conn)
-            self._seed_coverage_areas(conn)
-            self._seed_payment_methods(conn)
+            default_client_id, default_device_id = self._ensure_default_catalog_scope(conn)
+            self._seed_default_catalog_for_scope(
+                conn,
+                client_id=default_client_id,
+                device_id=default_device_id,
+            )
 
-    def _seed_intent_catalog(self, conn: sqlite3.Connection) -> None:
+    def _ensure_default_catalog_scope(self, conn: sqlite3.Connection) -> tuple[int, int]:
+        now = _utc_now()
+        account = conn.execute(
+            "SELECT id, name, slug FROM accounts WHERE slug = ?",
+            (self.settings.chat_auto_account_slug,),
+        ).fetchone()
+        if not account:
+            cursor = conn.execute(
+                """
+                INSERT INTO accounts (name, slug, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    self.settings.chat_auto_account_name,
+                    self.settings.chat_auto_account_slug,
+                    now,
+                    now,
+                ),
+            )
+            account = conn.execute(
+                "SELECT id, name, slug FROM accounts WHERE id = ?",
+                (cursor.lastrowid,),
+            ).fetchone()
+
+        client = conn.execute(
+            """
+            SELECT id
+            FROM clients
+            WHERE account_id = ? AND external_ref = ?
+            """,
+            (account["id"], DEFAULT_CATALOG_EXTERNAL_REF),
+        ).fetchone()
+        if not client:
+            cursor = conn.execute(
+                """
+                INSERT INTO clients (
+                    account_id,
+                    name,
+                    external_ref,
+                    api_token,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    account["id"],
+                    "Default Catalog Client",
+                    DEFAULT_CATALOG_EXTERNAL_REF,
+                    secrets.token_urlsafe(24),
+                    now,
+                    now,
+                ),
+            )
+            client_id = int(cursor.lastrowid)
+        else:
+            client_id = int(client["id"])
+
+        device = conn.execute(
+            """
+            SELECT id
+            FROM devices
+            WHERE device_identifier = ?
+            """,
+            (DEFAULT_CATALOG_DEVICE_IDENTIFIER,),
+        ).fetchone()
+        if not device:
+            cursor = conn.execute(
+                """
+                INSERT INTO devices (
+                    client_id,
+                    device_identifier,
+                    device_name,
+                    outbound_token,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    client_id,
+                    DEFAULT_CATALOG_DEVICE_IDENTIFIER,
+                    "Default Catalog Device",
+                    None,
+                    now,
+                    now,
+                ),
+            )
+            device_id = int(cursor.lastrowid)
+        else:
+            device_id = int(device["id"])
+
+        return client_id, device_id
+
+    def _seed_intent_catalog(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        client_id: int,
+        device_id: int,
+    ) -> None:
         seed_tables = {
             "intents": ("intent_code", "intent_name", "description"),
             "languages": ("lang_code", "lang_name"),
@@ -417,8 +581,9 @@ class SQLiteChatStore:
             ),
         }
         for table_name, columns in seed_tables.items():
-            placeholders = ", ".join("?" for _ in columns)
-            column_sql = ", ".join(columns)
+            scoped_columns = ("client_id", "device_id", *columns)
+            placeholders = ", ".join("?" for _ in scoped_columns)
+            column_sql = ", ".join(scoped_columns)
             rows = DEFAULT_INTENT_SEED.get(table_name, [])
             if not rows:
                 continue
@@ -427,7 +592,10 @@ class SQLiteChatStore:
                 INSERT OR IGNORE INTO {table_name} ({column_sql})
                 VALUES ({placeholders})
                 """,
-                [tuple(row.get(column) for column in columns) for row in rows],
+                [
+                    (client_id, device_id, *(row.get(column) for column in columns))
+                    for row in rows
+                ],
             )
 
         for intent_code, item in DEFAULT_INTENT_MAPPINGS.items():
@@ -435,21 +603,20 @@ class SQLiteChatStore:
                 continue
             conn.execute(
                 """
-                INSERT INTO intent_mappings (
+                INSERT OR IGNORE INTO intent_mappings (
+                    client_id,
+                    device_id,
                     intent_code,
                     description,
                     required_slots,
                     optional_slots,
                     next_action
                 )
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(intent_code) DO UPDATE SET
-                    description = excluded.description,
-                    required_slots = excluded.required_slots,
-                    optional_slots = excluded.optional_slots,
-                    next_action = excluded.next_action
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    client_id,
+                    device_id,
                     str(intent_code),
                     item.get("description"),
                     json.dumps(item.get("required_slots") or [], ensure_ascii=True),
@@ -458,12 +625,20 @@ class SQLiteChatStore:
                 ),
             )
 
-    def _seed_internet_packages(self, conn: sqlite3.Connection) -> None:
+    def _seed_internet_packages(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        client_id: int,
+        device_id: int,
+    ) -> None:
         now = _utc_now()
         for item in DEFAULT_INTERNET_PACKAGES:
             conn.execute(
                 """
-                INSERT INTO internet_packages (
+                INSERT OR IGNORE INTO internet_packages (
+                    client_id,
+                    device_id,
                     package_code,
                     package_name,
                     speed_mbps,
@@ -478,21 +653,11 @@ class SQLiteChatStore:
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(package_code) DO UPDATE SET
-                    package_name = excluded.package_name,
-                    speed_mbps = excluded.speed_mbps,
-                    monthly_price = excluded.monthly_price,
-                    installation_fee = excluded.installation_fee,
-                    installation_fee_label = excluded.installation_fee_label,
-                    areas = excluded.areas,
-                    benefits = excluded.benefits,
-                    is_active = excluded.is_active,
-                    sort_order = excluded.sort_order,
-                    notes = excluded.notes,
-                    updated_at = excluded.updated_at
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    client_id,
+                    device_id,
                     item["package_code"],
                     item["package_name"],
                     item["speed_mbps"],
@@ -509,12 +674,20 @@ class SQLiteChatStore:
                 ),
             )
 
-    def _seed_coverage_areas(self, conn: sqlite3.Connection) -> None:
+    def _seed_coverage_areas(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        client_id: int,
+        device_id: int,
+    ) -> None:
         now = _utc_now()
         for item in DEFAULT_COVERAGE_AREAS:
             conn.execute(
                 """
-                INSERT INTO coverage_areas (
+                INSERT OR IGNORE INTO coverage_areas (
+                    client_id,
+                    device_id,
                     area_code,
                     area_name,
                     city,
@@ -526,18 +699,11 @@ class SQLiteChatStore:
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(area_code) DO UPDATE SET
-                    area_name = excluded.area_name,
-                    city = excluded.city,
-                    district = excluded.district,
-                    coverage_status = excluded.coverage_status,
-                    notes = excluded.notes,
-                    is_active = excluded.is_active,
-                    sort_order = excluded.sort_order,
-                    updated_at = excluded.updated_at
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    client_id,
+                    device_id,
                     item["area_code"],
                     item["area_name"],
                     item.get("city"),
@@ -551,12 +717,20 @@ class SQLiteChatStore:
                 ),
             )
 
-    def _seed_payment_methods(self, conn: sqlite3.Connection) -> None:
+    def _seed_payment_methods(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        client_id: int,
+        device_id: int,
+    ) -> None:
         now = _utc_now()
         for item in DEFAULT_PAYMENT_METHODS:
             conn.execute(
                 """
-                INSERT INTO payment_methods (
+                INSERT OR IGNORE INTO payment_methods (
+                    client_id,
+                    device_id,
                     method_code,
                     method_name,
                     is_available,
@@ -565,15 +739,11 @@ class SQLiteChatStore:
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(method_code) DO UPDATE SET
-                    method_name = excluded.method_name,
-                    is_available = excluded.is_available,
-                    notes = excluded.notes,
-                    sort_order = excluded.sort_order,
-                    updated_at = excluded.updated_at
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    client_id,
+                    device_id,
                     item["method_code"],
                     item["method_name"],
                     int(item.get("is_available", 1)),
@@ -584,10 +754,307 @@ class SQLiteChatStore:
                 ),
             )
 
+    def _seed_default_catalog_for_scope(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        client_id: int,
+        device_id: int,
+    ) -> None:
+        self._seed_intent_catalog(conn, client_id=client_id, device_id=device_id)
+        self._seed_internet_packages(conn, client_id=client_id, device_id=device_id)
+        self._seed_coverage_areas(conn, client_id=client_id, device_id=device_id)
+        self._seed_payment_methods(conn, client_id=client_id, device_id=device_id)
+
     def _ensure_schema_migrations(self, conn: sqlite3.Connection) -> None:
+        conn.execute("PRAGMA foreign_keys = OFF")
+        scoped_tables = (
+            "messages",
+            "stock_products",
+            "internet_packages",
+            "coverage_areas",
+            "payment_methods",
+            "intents",
+            "languages",
+            "keywords",
+            "entities",
+            "entity_keywords",
+            "sample_utterances",
+            "normalization_rules",
+            "intent_mappings",
+            "conversation_states",
+            "unprocessed_questions",
+            "conversation_logs",
+        )
+        for table_name in scoped_tables:
+            self._ensure_column(conn, table_name, "client_id", "INTEGER")
+            self._ensure_column(conn, table_name, "device_id", "INTEGER")
+
         self._ensure_column(conn, "conversation_states", "current_topic", "TEXT")
         self._ensure_column(conn, "conversation_states", "last_user_message", "TEXT")
         self._ensure_column(conn, "conversation_states", "last_bot_response", "TEXT")
+        default_client_id, default_device_id = self._ensure_default_catalog_scope(conn)
+        self._backfill_scope_columns(
+            conn,
+            default_client_id=default_client_id,
+            default_device_id=default_device_id,
+        )
+        self._rebuild_legacy_scoped_unique_tables(conn)
+        self._ensure_scope_unique_indexes(conn)
+        self._ensure_scope_indexes(conn)
+        conn.execute("PRAGMA foreign_keys = ON")
+
+    def _rebuild_legacy_scoped_unique_tables(self, conn: sqlite3.Connection) -> None:
+        scoped_uniques = {
+            "stock_products": ("client_id", "device_id", "product_name", "product_type"),
+            "internet_packages": ("client_id", "device_id", "package_code"),
+            "coverage_areas": ("client_id", "device_id", "area_code"),
+            "payment_methods": ("client_id", "device_id", "method_code"),
+            "intents": ("client_id", "device_id", "intent_code"),
+            "languages": ("client_id", "device_id", "lang_code"),
+            "keywords": ("client_id", "device_id", "intent_code", "lang_code", "keyword"),
+            "entities": ("client_id", "device_id", "entity_code"),
+            "entity_keywords": ("client_id", "device_id", "entity_code", "lang_code", "keyword"),
+            "sample_utterances": ("client_id", "device_id", "intent_code", "lang_code", "utterance"),
+            "normalization_rules": ("client_id", "device_id", "lang_code", "source_text"),
+            "intent_mappings": ("client_id", "device_id", "intent_code"),
+        }
+        for table_name, unique_columns in scoped_uniques.items():
+            if self._has_unique_columns(conn, table_name, unique_columns):
+                continue
+            self._rebuild_table_without_legacy_uniques(conn, table_name)
+
+    def _has_unique_columns(
+        self,
+        conn: sqlite3.Connection,
+        table_name: str,
+        expected_columns: tuple[str, ...],
+    ) -> bool:
+        for index in conn.execute(f"PRAGMA index_list({table_name})").fetchall():
+            if not int(index["unique"] or 0):
+                continue
+            index_columns = tuple(
+                str(row["name"])
+                for row in conn.execute(f"PRAGMA index_info({index['name']})").fetchall()
+            )
+            if index_columns == expected_columns:
+                return True
+        return False
+
+    def _rebuild_table_without_legacy_uniques(
+        self,
+        conn: sqlite3.Connection,
+        table_name: str,
+    ) -> None:
+        legacy_table = f"{table_name}__legacy_scope_migration"
+        columns = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        if not columns:
+            return
+
+        column_defs = []
+        column_names = []
+        for column in columns:
+            column_name = str(column["name"])
+            column_type = str(column["type"] or "TEXT")
+            column_names.append(column_name)
+            if column_name == "id" and int(column["pk"] or 0):
+                column_defs.append("id INTEGER PRIMARY KEY AUTOINCREMENT")
+                continue
+
+            definition = f"{column_name} {column_type}".strip()
+            if int(column["notnull"] or 0):
+                definition += " NOT NULL"
+            if column["dflt_value"] is not None:
+                definition += f" DEFAULT {column['dflt_value']}"
+            column_defs.append(definition)
+
+        column_sql = ", ".join(column_names)
+        conn.execute(f"DROP TABLE IF EXISTS {legacy_table}")
+        conn.execute(f"ALTER TABLE {table_name} RENAME TO {legacy_table}")
+        conn.execute(f"CREATE TABLE {table_name} ({', '.join(column_defs)})")
+        conn.execute(
+            f"""
+            INSERT OR IGNORE INTO {table_name} ({column_sql})
+            SELECT {column_sql}
+            FROM {legacy_table}
+            """
+        )
+        conn.execute(f"DROP TABLE {legacy_table}")
+
+    def _backfill_scope_columns(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        default_client_id: int,
+        default_device_id: int,
+    ) -> None:
+        for table_name in ("messages", "conversation_states", "conversation_logs"):
+            conn.execute(
+                f"""
+                UPDATE {table_name}
+                SET
+                    client_id = COALESCE(
+                        client_id,
+                        (SELECT client_id FROM conversations WHERE conversations.id = {table_name}.conversation_id)
+                    ),
+                    device_id = COALESCE(
+                        device_id,
+                        (SELECT device_id FROM conversations WHERE conversations.id = {table_name}.conversation_id)
+                    )
+                WHERE client_id IS NULL OR device_id IS NULL
+                """
+            )
+
+        conn.execute(
+            """
+            UPDATE unprocessed_questions
+            SET
+                client_id = COALESCE(
+                    client_id,
+                    (SELECT client_id FROM conversations WHERE conversations.id = unprocessed_questions.conversation_id)
+                ),
+                device_id = COALESCE(
+                    device_id,
+                    (SELECT device_id FROM conversations WHERE conversations.id = unprocessed_questions.conversation_id)
+                )
+            WHERE client_id IS NULL OR device_id IS NULL
+            """
+        )
+
+        conn.execute(
+            """
+            UPDATE stock_products
+            SET device_id = COALESCE(
+                device_id,
+                (
+                    SELECT id
+                    FROM devices
+                    WHERE devices.client_id = stock_products.client_id
+                    ORDER BY id
+                    LIMIT 1
+                ),
+                ?
+            )
+            WHERE device_id IS NULL
+            """,
+            (default_device_id,),
+        )
+
+        default_scoped_tables = (
+            "internet_packages",
+            "coverage_areas",
+            "payment_methods",
+            "intents",
+            "languages",
+            "keywords",
+            "entities",
+            "entity_keywords",
+            "sample_utterances",
+            "normalization_rules",
+            "intent_mappings",
+        )
+        for table_name in default_scoped_tables:
+            conn.execute(
+                f"""
+                UPDATE {table_name}
+                SET
+                    client_id = COALESCE(client_id, ?),
+                    device_id = COALESCE(device_id, ?)
+                WHERE client_id IS NULL OR device_id IS NULL
+                """,
+                (default_client_id, default_device_id),
+            )
+
+    def _ensure_scope_indexes(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE INDEX IF NOT EXISTS idx_messages_scope
+                ON messages (client_id, device_id);
+            CREATE INDEX IF NOT EXISTS idx_stock_products_scope
+                ON stock_products (client_id, device_id);
+            CREATE INDEX IF NOT EXISTS idx_internet_packages_scope_active_sort
+                ON internet_packages (client_id, device_id, is_active, sort_order);
+            CREATE INDEX IF NOT EXISTS idx_coverage_areas_scope_active_sort
+                ON coverage_areas (client_id, device_id, is_active, sort_order);
+            CREATE INDEX IF NOT EXISTS idx_payment_methods_scope_available_sort
+                ON payment_methods (client_id, device_id, is_available, sort_order);
+            CREATE INDEX IF NOT EXISTS idx_intents_scope_code
+                ON intents (client_id, device_id, intent_code);
+            CREATE INDEX IF NOT EXISTS idx_languages_scope_code
+                ON languages (client_id, device_id, lang_code);
+            CREATE INDEX IF NOT EXISTS idx_keywords_scope_intent_lang
+                ON keywords (client_id, device_id, intent_code, lang_code);
+            CREATE INDEX IF NOT EXISTS idx_entities_scope_code
+                ON entities (client_id, device_id, entity_code);
+            CREATE INDEX IF NOT EXISTS idx_entity_keywords_scope_entity_lang
+                ON entity_keywords (client_id, device_id, entity_code, lang_code);
+            CREATE INDEX IF NOT EXISTS idx_sample_utterances_scope_intent_lang
+                ON sample_utterances (client_id, device_id, intent_code, lang_code);
+            CREATE INDEX IF NOT EXISTS idx_normalization_rules_scope_lang
+                ON normalization_rules (client_id, device_id, lang_code);
+            CREATE INDEX IF NOT EXISTS idx_intent_mappings_scope_intent
+                ON intent_mappings (client_id, device_id, intent_code);
+            CREATE INDEX IF NOT EXISTS idx_unprocessed_questions_scope
+                ON unprocessed_questions (client_id, device_id, status);
+            CREATE INDEX IF NOT EXISTS idx_conversation_logs_scope
+                ON conversation_logs (client_id, device_id, created_at);
+            """
+        )
+
+    def _ensure_scope_unique_indexes(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_stock_products_scope_product
+                ON stock_products (client_id, device_id, product_name, product_type);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_internet_packages_scope_code
+                ON internet_packages (client_id, device_id, package_code);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_coverage_areas_scope_code
+                ON coverage_areas (client_id, device_id, area_code);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_methods_scope_code
+                ON payment_methods (client_id, device_id, method_code);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_intents_scope_code
+                ON intents (client_id, device_id, intent_code);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_languages_scope_code
+                ON languages (client_id, device_id, lang_code);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_keywords_scope_keyword
+                ON keywords (client_id, device_id, intent_code, lang_code, keyword);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_entities_scope_code
+                ON entities (client_id, device_id, entity_code);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_entity_keywords_scope_keyword
+                ON entity_keywords (client_id, device_id, entity_code, lang_code, keyword);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_sample_utterances_scope_utterance
+                ON sample_utterances (client_id, device_id, intent_code, lang_code, utterance);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_normalization_rules_scope_source
+                ON normalization_rules (client_id, device_id, lang_code, source_text);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_intent_mappings_scope_intent
+                ON intent_mappings (client_id, device_id, intent_code);
+            """
+        )
+
+    def _catalog_scope_for_table(
+        self,
+        conn: sqlite3.Connection,
+        table_name: str,
+        *,
+        client_id: int | None,
+        device_id: int | None,
+    ) -> tuple[int, int]:
+        default_scope = self._ensure_default_catalog_scope(conn)
+        if client_id is None or device_id is None:
+            return default_scope
+
+        scoped_row = conn.execute(
+            f"""
+            SELECT 1
+            FROM {table_name}
+            WHERE client_id = ? AND device_id = ?
+            LIMIT 1
+            """,
+            (client_id, device_id),
+        ).fetchone()
+        if scoped_row:
+            return client_id, device_id
+        return default_scope
 
     def _ensure_column(
         self,
@@ -800,6 +1267,11 @@ class SQLiteChatStore:
                 )
                 device_id = cursor.lastrowid
 
+            self._seed_default_catalog_for_scope(
+                conn,
+                client_id=int(client["id"]),
+                device_id=int(device_id),
+            )
             row = conn.execute(
                 """
                 SELECT
@@ -842,15 +1314,19 @@ class SQLiteChatStore:
             cursor = conn.execute(
                 """
                 INSERT INTO messages (
+                    client_id,
+                    device_id,
                     conversation_id,
                     direction,
                     message_text,
                     raw_payload,
                     created_at
                 )
-                VALUES (?, 'incoming', ?, ?, ?)
+                VALUES (?, ?, ?, 'incoming', ?, ?, ?)
                 """,
                 (
+                    device.client_id,
+                    device.device_id,
                     conversation_id,
                     message_text,
                     json.dumps(payload, ensure_ascii=True),
@@ -878,6 +1354,7 @@ class SQLiteChatStore:
     ) -> int:
         now = _utc_now()
         with self._connect() as conn:
+            scope = self._get_conversation_scope(conn, conversation_id)
             conn.execute(
                 """
                 UPDATE conversations
@@ -889,6 +1366,8 @@ class SQLiteChatStore:
             cursor = conn.execute(
                 """
                 INSERT INTO messages (
+                    client_id,
+                    device_id,
                     conversation_id,
                     direction,
                     message_text,
@@ -897,9 +1376,11 @@ class SQLiteChatStore:
                     raw_payload,
                     created_at
                 )
-                VALUES (?, 'outgoing', ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, 'outgoing', ?, ?, ?, ?, ?)
                 """,
                 (
+                    scope["client_id"],
+                    scope["device_id"],
                     conversation_id,
                     reply_text,
                     json.dumps(matched_keywords, ensure_ascii=True),
@@ -940,6 +1421,8 @@ class SQLiteChatStore:
                 """
                 SELECT
                     conversation_id,
+                    client_id,
+                    device_id,
                     current_intent,
                     current_topic,
                     stage,
@@ -981,10 +1464,13 @@ class SQLiteChatStore:
         now = now_dt.isoformat()
         expires_at = (now_dt + timedelta(hours=self.settings.conversation_state_ttl_hours)).isoformat()
         with self._connect() as conn:
+            scope = self._get_conversation_scope(conn, conversation_id)
             conn.execute(
                 """
                 INSERT INTO conversation_states (
                     conversation_id,
+                    client_id,
+                    device_id,
                     current_intent,
                     current_topic,
                     stage,
@@ -998,8 +1484,10 @@ class SQLiteChatStore:
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(conversation_id) DO UPDATE SET
+                    client_id = excluded.client_id,
+                    device_id = excluded.device_id,
                     current_intent = excluded.current_intent,
                     current_topic = excluded.current_topic,
                     stage = excluded.stage,
@@ -1014,6 +1502,8 @@ class SQLiteChatStore:
                 """,
                 (
                     conversation_id,
+                    scope["client_id"],
+                    scope["device_id"],
                     state.get("current_intent"),
                     state.get("current_topic"),
                     stage,
@@ -1029,20 +1519,81 @@ class SQLiteChatStore:
                 ),
             )
 
-    def get_intent_agent_catalog(self) -> dict[str, Any]:
+    def get_intent_agent_catalog(
+        self,
+        *,
+        client_id: int | None = None,
+        device_id: int | None = None,
+    ) -> dict[str, Any]:
         with self._connect() as conn:
+            intent_scope = self._catalog_scope_for_table(
+                conn,
+                "intents",
+                client_id=client_id,
+                device_id=device_id,
+            )
+            keyword_scope = self._catalog_scope_for_table(
+                conn,
+                "keywords",
+                client_id=client_id,
+                device_id=device_id,
+            )
+            entity_keyword_scope = self._catalog_scope_for_table(
+                conn,
+                "entity_keywords",
+                client_id=client_id,
+                device_id=device_id,
+            )
+            normalization_scope = self._catalog_scope_for_table(
+                conn,
+                "normalization_rules",
+                client_id=client_id,
+                device_id=device_id,
+            )
+            sample_scope = self._catalog_scope_for_table(
+                conn,
+                "sample_utterances",
+                client_id=client_id,
+                device_id=device_id,
+            )
+            mapping_scope = self._catalog_scope_for_table(
+                conn,
+                "intent_mappings",
+                client_id=client_id,
+                device_id=device_id,
+            )
+            package_scope = self._catalog_scope_for_table(
+                conn,
+                "internet_packages",
+                client_id=client_id,
+                device_id=device_id,
+            )
+            coverage_scope = self._catalog_scope_for_table(
+                conn,
+                "coverage_areas",
+                client_id=client_id,
+                device_id=device_id,
+            )
+            payment_scope = self._catalog_scope_for_table(
+                conn,
+                "payment_methods",
+                client_id=client_id,
+                device_id=device_id,
+            )
             intents = conn.execute(
                 """
                 SELECT intent_code, intent_name, description
                 FROM intents
+                WHERE client_id = ? AND device_id = ?
                 ORDER BY intent_code
-                """
+                """,
+                intent_scope,
             ).fetchall()
             intent_keywords = conn.execute(
                 """
                 SELECT
                     k.intent_code,
-                    i.intent_name,
+                    COALESCE(i.intent_name, k.intent_code) AS intent_name,
                     k.lang_code,
                     k.keyword,
                     k.normalized_keyword,
@@ -1050,30 +1601,42 @@ class SQLiteChatStore:
                     k.weight,
                     k.notes
                 FROM keywords k
-                JOIN intents i ON i.intent_code = k.intent_code
+                LEFT JOIN intents i
+                  ON i.intent_code = k.intent_code
+                 AND i.client_id = k.client_id
+                 AND i.device_id = k.device_id
+                WHERE k.client_id = ? AND k.device_id = ?
                 ORDER BY k.weight DESC, k.intent_code, k.lang_code, k.keyword
-                """
+                """,
+                keyword_scope,
             ).fetchall()
             entity_keywords = conn.execute(
                 """
                 SELECT
                     ek.entity_code,
-                    e.entity_name,
+                    COALESCE(e.entity_name, ek.entity_code) AS entity_name,
                     ek.lang_code,
                     ek.keyword,
                     ek.normalized_keyword,
                     ek.notes
                 FROM entity_keywords ek
-                JOIN entities e ON e.entity_code = ek.entity_code
+                LEFT JOIN entities e
+                  ON e.entity_code = ek.entity_code
+                 AND e.client_id = ek.client_id
+                 AND e.device_id = ek.device_id
+                WHERE ek.client_id = ? AND ek.device_id = ?
                 ORDER BY ek.entity_code, ek.lang_code, ek.keyword
-                """
+                """,
+                entity_keyword_scope,
             ).fetchall()
             normalization_rules = conn.execute(
                 """
                 SELECT lang_code, source_text, normalized_text, notes
                 FROM normalization_rules
+                WHERE client_id = ? AND device_id = ?
                 ORDER BY lang_code, source_text
-                """
+                """,
+                normalization_scope,
             ).fetchall()
             sample_utterances = conn.execute(
                 """
@@ -1085,8 +1648,10 @@ class SQLiteChatStore:
                     expected_entities,
                     notes
                 FROM sample_utterances
+                WHERE client_id = ? AND device_id = ?
                 ORDER BY intent_code, lang_code, utterance
-                """
+                """,
+                sample_scope,
             ).fetchall()
             mappings = conn.execute(
                 """
@@ -1097,12 +1662,16 @@ class SQLiteChatStore:
                     optional_slots,
                     next_action
                 FROM intent_mappings
+                WHERE client_id = ? AND device_id = ?
                 ORDER BY intent_code
-                """
+                """,
+                mapping_scope,
             ).fetchall()
             internet_packages = conn.execute(
                 """
                 SELECT
+                    client_id,
+                    device_id,
                     package_code,
                     package_name,
                     speed_mbps,
@@ -1115,13 +1684,16 @@ class SQLiteChatStore:
                     sort_order,
                     notes
                 FROM internet_packages
-                WHERE is_active = 1
+                WHERE client_id = ? AND device_id = ? AND is_active = 1
                 ORDER BY sort_order, speed_mbps, package_name
-                """
+                """,
+                package_scope,
             ).fetchall()
             coverage_areas = conn.execute(
                 """
                 SELECT
+                    client_id,
+                    device_id,
                     area_code,
                     area_name,
                     city,
@@ -1131,21 +1703,26 @@ class SQLiteChatStore:
                     is_active,
                     sort_order
                 FROM coverage_areas
-                WHERE is_active = 1
+                WHERE client_id = ? AND device_id = ? AND is_active = 1
                 ORDER BY sort_order, area_name
-                """
+                """,
+                coverage_scope,
             ).fetchall()
             payment_methods = conn.execute(
                 """
                 SELECT
+                    client_id,
+                    device_id,
                     method_code,
                     method_name,
                     is_available,
                     notes,
                     sort_order
                 FROM payment_methods
+                WHERE client_id = ? AND device_id = ?
                 ORDER BY sort_order, method_name
-                """
+                """,
+                payment_scope,
             ).fetchall()
 
         return {
@@ -1163,8 +1740,19 @@ class SQLiteChatStore:
             "payment_methods": [dict(row) for row in payment_methods],
         }
 
-    def list_intents_for_mapping(self) -> list[dict[str, Any]]:
+    def list_intents_for_mapping(
+        self,
+        *,
+        client_id: int | None = None,
+        device_id: int | None = None,
+    ) -> list[dict[str, Any]]:
         with self._connect() as conn:
+            intent_scope = self._catalog_scope_for_table(
+                conn,
+                "intents",
+                client_id=client_id,
+                device_id=device_id,
+            )
             rows = conn.execute(
                 """
                 SELECT
@@ -1175,20 +1763,69 @@ class SQLiteChatStore:
                     im.required_slots,
                     im.optional_slots
                 FROM intents i
-                LEFT JOIN intent_mappings im ON im.intent_code = i.intent_code
+                LEFT JOIN intent_mappings im
+                  ON im.intent_code = i.intent_code
+                 AND im.client_id = i.client_id
+                 AND im.device_id = i.device_id
                 WHERE i.intent_code != 'unknown'
+                  AND i.client_id = ?
+                  AND i.device_id = ?
                 ORDER BY i.intent_code
-                """
+                """,
+                intent_scope,
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def list_internet_packages(self, active_only: bool = True) -> list[dict[str, Any]]:
+    def list_internet_packages(
+        self,
+        active_only: bool = True,
+        *,
+        client_id: int | None = None,
+        client_token: str | None = None,
+        device_id: int | None = None,
+        device_identifier: str | None = None,
+    ) -> list[dict[str, Any]]:
         where_clause = "WHERE is_active = 1" if active_only else ""
         with self._connect() as conn:
+            resolved_client = self._resolve_client(
+                conn,
+                client_id=client_id,
+                client_token=client_token,
+            )
+            if client_id is not None or client_token:
+                if not resolved_client:
+                    raise ValueError("Client was not found for the provided identifier/token.")
+                if device_id is None and not device_identifier:
+                    raise ValueError("Provide `device_id` or `device_identifier` for client-scoped packages.")
+            resolved_device = self._resolve_device(
+                conn,
+                client_id=int(resolved_client["id"]) if resolved_client else None,
+                device_id=device_id,
+                device_identifier=device_identifier,
+            )
+            if device_id is not None or device_identifier:
+                if not resolved_device:
+                    raise ValueError("Device was not found for the provided identifier.")
+            scope_client_id = int(resolved_client["id"]) if resolved_client else None
+            scope_device_id = int(resolved_device["id"]) if resolved_device else None
+            package_scope = self._catalog_scope_for_table(
+                conn,
+                "internet_packages",
+                client_id=scope_client_id,
+                device_id=scope_device_id,
+            )
+            scoped_where = "client_id = ? AND device_id = ?"
+            where_clause = (
+                f"WHERE {scoped_where} AND is_active = 1"
+                if active_only
+                else f"WHERE {scoped_where}"
+            )
             rows = conn.execute(
                 f"""
                 SELECT
                     id,
+                    client_id,
+                    device_id,
                     package_code,
                     package_name,
                     speed_mbps,
@@ -1205,7 +1842,8 @@ class SQLiteChatStore:
                 FROM internet_packages
                 {where_clause}
                 ORDER BY sort_order, speed_mbps, package_name
-                """
+                """,
+                package_scope,
             ).fetchall()
         return [self._decode_internet_package_row(dict(row)) for row in rows]
 
@@ -1226,9 +1864,12 @@ class SQLiteChatStore:
     ) -> None:
         now = _utc_now()
         with self._connect() as conn:
+            scope = self._get_conversation_scope(conn, conversation_id)
             conn.execute(
                 """
                 INSERT INTO conversation_logs (
+                    client_id,
+                    device_id,
                     conversation_id,
                     message_id,
                     phone_number,
@@ -1242,9 +1883,11 @@ class SQLiteChatStore:
                     bot_response,
                     created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    scope["client_id"],
+                    scope["device_id"],
                     conversation_id,
                     message_id,
                     phone_number,
@@ -1275,6 +1918,7 @@ class SQLiteChatStore:
                 """
                 INSERT INTO unprocessed_questions (
                     client_id,
+                    device_id,
                     conversation_id,
                     message_id,
                     language,
@@ -1288,8 +1932,10 @@ class SQLiteChatStore:
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(message_id) DO UPDATE SET
+                    client_id = excluded.client_id,
+                    device_id = excluded.device_id,
                     language = excluded.language,
                     message_text = excluded.message_text,
                     normalized_text = excluded.normalized_text,
@@ -1302,6 +1948,7 @@ class SQLiteChatStore:
                 """,
                 (
                     stored_message.device.client_id,
+                    stored_message.device.device_id,
                     stored_message.conversation_id,
                     stored_message.message_id,
                     str(analysis.get("language") or "id"),
@@ -1342,6 +1989,7 @@ class SQLiteChatStore:
                     uq.client_id,
                     c.name AS client_name,
                     a.slug AS account_slug,
+                    uq.device_id,
                     uq.conversation_id,
                     uq.message_id,
                     conv.sender_number,
@@ -1366,7 +2014,7 @@ class SQLiteChatStore:
                 JOIN clients c ON c.id = uq.client_id
                 JOIN accounts a ON a.id = c.account_id
                 JOIN conversations conv ON conv.id = uq.conversation_id
-                JOIN devices d ON d.id = conv.device_id
+                JOIN devices d ON d.id = uq.device_id
                 {where_clause}
                 ORDER BY uq.created_at DESC, uq.id DESC
                 LIMIT ?
@@ -1402,7 +2050,7 @@ class SQLiteChatStore:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT id, language, message_text, status
+                SELECT id, client_id, device_id, language, message_text, status
                 FROM unprocessed_questions
                 WHERE id = ?
                 """,
@@ -1431,9 +2079,18 @@ class SQLiteChatStore:
             if not intent_code:
                 raise ValueError("intent_code is required for mapped questions.")
 
+            self._seed_intent_catalog(
+                conn,
+                client_id=int(row["client_id"]),
+                device_id=int(row["device_id"]),
+            )
             intent = conn.execute(
-                "SELECT intent_code FROM intents WHERE intent_code = ?",
-                (intent_code,),
+                """
+                SELECT intent_code
+                FROM intents
+                WHERE intent_code = ? AND client_id = ? AND device_id = ?
+                """,
+                (intent_code, row["client_id"], row["device_id"]),
             ).fetchone()
             if not intent:
                 raise ValueError(f"Intent `{intent_code}` was not found.")
@@ -1446,6 +2103,8 @@ class SQLiteChatStore:
                 conn.execute(
                     """
                     INSERT OR IGNORE INTO sample_utterances (
+                        client_id,
+                        device_id,
                         intent_code,
                         lang_code,
                         utterance,
@@ -1453,9 +2112,18 @@ class SQLiteChatStore:
                         expected_entities,
                         notes
                     )
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (intent_code, lang_code, message_text, "learned", "{}", mapping_notes),
+                    (
+                        row["client_id"],
+                        row["device_id"],
+                        intent_code,
+                        lang_code,
+                        message_text,
+                        "learned",
+                        "{}",
+                        mapping_notes,
+                    ),
                 )
 
             if mapping_type in {"keyword", "both"}:
@@ -1466,6 +2134,8 @@ class SQLiteChatStore:
                 conn.execute(
                     """
                     INSERT OR IGNORE INTO keywords (
+                        client_id,
+                        device_id,
                         intent_code,
                         lang_code,
                         keyword,
@@ -1474,9 +2144,11 @@ class SQLiteChatStore:
                         weight,
                         notes
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
+                        row["client_id"],
+                        row["device_id"],
                         intent_code,
                         lang_code,
                         keyword_text,
@@ -1515,6 +2187,7 @@ class SQLiteChatStore:
                 uq.client_id,
                 c.name AS client_name,
                 a.slug AS account_slug,
+                uq.device_id,
                 uq.conversation_id,
                 uq.message_id,
                 conv.sender_number,
@@ -1539,7 +2212,7 @@ class SQLiteChatStore:
             JOIN clients c ON c.id = uq.client_id
             JOIN accounts a ON a.id = c.account_id
             JOIN conversations conv ON conv.id = uq.conversation_id
-            JOIN devices d ON d.id = conv.device_id
+            JOIN devices d ON d.id = uq.device_id
             WHERE uq.id = ?
             """,
             (question_id,),
@@ -1566,6 +2239,8 @@ class SQLiteChatStore:
         *,
         client_id: int | None = None,
         client_token: str | None = None,
+        device_id: int | None = None,
+        device_identifier: str | None = None,
         query: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
@@ -1585,6 +2260,18 @@ class SQLiteChatStore:
                 filters.append("sp.client_id = ?")
                 params.append(resolved_client["id"])
 
+            resolved_device = self._resolve_device(
+                conn,
+                client_id=int(resolved_client["id"]) if resolved_client else None,
+                device_id=device_id,
+                device_identifier=device_identifier,
+            )
+            if device_id is not None or device_identifier:
+                if not resolved_device:
+                    raise ValueError("Device was not found for the provided identifier.")
+                filters.append("sp.device_id = ?")
+                params.append(resolved_device["id"])
+
             if query and query.strip():
                 filters.append("LOWER(sp.product_name) LIKE ?")
                 params.append(f"%{query.strip().lower()}%")
@@ -1595,8 +2282,11 @@ class SQLiteChatStore:
                 SELECT
                     sp.id,
                     sp.client_id,
+                    sp.device_id,
                     c.name AS client_name,
                     a.slug AS account_slug,
+                    d.device_identifier,
+                    d.device_name,
                     sp.product_name,
                     sp.product_type,
                     sp.stock,
@@ -1606,6 +2296,7 @@ class SQLiteChatStore:
                 FROM stock_products sp
                 JOIN clients c ON c.id = sp.client_id
                 JOIN accounts a ON a.id = c.account_id
+                JOIN devices d ON d.id = sp.device_id
                 {where_clause}
                 ORDER BY sp.updated_at DESC, sp.id DESC
                 LIMIT ?
@@ -1623,6 +2314,8 @@ class SQLiteChatStore:
         metadata: dict[str, Any] | None = None,
         client_id: int | None = None,
         client_token: str | None = None,
+        device_id: int | None = None,
+        device_identifier: str | None = None,
     ) -> dict[str, Any]:
         normalized_name = product_name.strip()
         normalized_type = product_type.strip() if product_type else ""
@@ -1636,14 +2329,22 @@ class SQLiteChatStore:
             client = self._resolve_client(conn, client_id=client_id, client_token=client_token)
             if not client:
                 raise ValueError("Client was not found for the provided identifier/token.")
+            device = self._resolve_device(
+                conn,
+                client_id=int(client["id"]),
+                device_id=device_id,
+                device_identifier=device_identifier,
+            )
+            if not device:
+                raise ValueError("Device was not found for the provided identifier.")
 
             existing = conn.execute(
                 """
                 SELECT id
                 FROM stock_products
-                WHERE client_id = ? AND product_name = ? AND product_type = ?
+                WHERE client_id = ? AND device_id = ? AND product_name = ? AND product_type = ?
                 """,
-                (client["id"], normalized_name, normalized_type),
+                (client["id"], device["id"], normalized_name, normalized_type),
             ).fetchone()
             if existing:
                 product_id = int(existing["id"])
@@ -1665,6 +2366,7 @@ class SQLiteChatStore:
                     """
                     INSERT INTO stock_products (
                         client_id,
+                        device_id,
                         product_name,
                         product_type,
                         stock,
@@ -1672,10 +2374,11 @@ class SQLiteChatStore:
                         created_at,
                         updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         client["id"],
+                        device["id"],
                         normalized_name,
                         normalized_type,
                         stock,
@@ -1691,8 +2394,11 @@ class SQLiteChatStore:
                 SELECT
                     sp.id,
                     sp.client_id,
+                    sp.device_id,
                     c.name AS client_name,
                     a.slug AS account_slug,
+                    d.device_identifier,
+                    d.device_name,
                     sp.product_name,
                     sp.product_type,
                     sp.stock,
@@ -1702,6 +2408,7 @@ class SQLiteChatStore:
                 FROM stock_products sp
                 JOIN clients c ON c.id = sp.client_id
                 JOIN accounts a ON a.id = c.account_id
+                JOIN devices d ON d.id = sp.device_id
                 WHERE sp.id = ?
                 """,
                 (product_id,),
@@ -1712,6 +2419,7 @@ class SQLiteChatStore:
         self,
         *,
         client_id: int,
+        device_id: int,
         query_tokens: list[str],
         limit: int = 5,
     ) -> list[StockMatch]:
@@ -1729,9 +2437,9 @@ class SQLiteChatStore:
                 """
                 SELECT id, product_name, product_type, stock
                 FROM stock_products
-                WHERE client_id = ?
+                WHERE client_id = ? AND device_id = ?
                 """,
-                (client_id,),
+                (client_id, device_id),
             ).fetchall()
 
         ranked_rows: list[tuple[int, int, StockMatch]] = []
@@ -1762,11 +2470,45 @@ class SQLiteChatStore:
         best_score = ranked_rows[0][0]
         return [match for score, _, match in ranked_rows if score == best_score][:safe_limit]
 
-    def list_conversations(self, limit: int = 50) -> list[dict[str, Any]]:
+    def list_conversations(
+        self,
+        limit: int = 50,
+        *,
+        client_id: int | None = None,
+        client_token: str | None = None,
+        device_id: int | None = None,
+        device_identifier: str | None = None,
+    ) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 200))
+        filters = []
+        params: list[Any] = []
         with self._connect() as conn:
+            resolved_client = self._resolve_client(
+                conn,
+                client_id=client_id,
+                client_token=client_token,
+            )
+            if client_id is not None or client_token:
+                if not resolved_client:
+                    raise ValueError("Client was not found for the provided identifier/token.")
+                filters.append("conv.client_id = ?")
+                params.append(resolved_client["id"])
+
+            resolved_device = self._resolve_device(
+                conn,
+                client_id=int(resolved_client["id"]) if resolved_client else None,
+                device_id=device_id,
+                device_identifier=device_identifier,
+            )
+            if device_id is not None or device_identifier:
+                if not resolved_device:
+                    raise ValueError("Device was not found for the provided identifier.")
+                filters.append("conv.device_id = ?")
+                params.append(resolved_device["id"])
+
+            where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
             rows = conn.execute(
-                """
+                f"""
                 SELECT
                     conv.id,
                     conv.sender_number,
@@ -1778,6 +2520,7 @@ class SQLiteChatStore:
                     c.name AS client_name,
                     c.api_token AS client_token,
                     a.slug AS account_slug,
+                    d.id AS device_id,
                     d.device_identifier,
                     d.device_name,
                     (
@@ -1791,20 +2534,66 @@ class SQLiteChatStore:
                 JOIN clients c ON c.id = conv.client_id
                 JOIN accounts a ON a.id = c.account_id
                 JOIN devices d ON d.id = conv.device_id
+                {where_clause}
                 ORDER BY conv.updated_at DESC
                 LIMIT ?
                 """,
-                (safe_limit,),
+                (*params, safe_limit),
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def list_messages(self, conversation_id: int, limit: int = 100) -> list[dict[str, Any]]:
+    def list_messages(
+        self,
+        conversation_id: int,
+        limit: int = 100,
+        *,
+        client_id: int | None = None,
+        client_token: str | None = None,
+        device_id: int | None = None,
+        device_identifier: str | None = None,
+    ) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 500))
         with self._connect() as conn:
+            resolved_client = self._resolve_client(
+                conn,
+                client_id=client_id,
+                client_token=client_token,
+            )
+            if client_id is not None or client_token:
+                if not resolved_client:
+                    raise ValueError("Client was not found for the provided identifier/token.")
+
+            resolved_device = self._resolve_device(
+                conn,
+                client_id=int(resolved_client["id"]) if resolved_client else None,
+                device_id=device_id,
+                device_identifier=device_identifier,
+            )
+            if device_id is not None or device_identifier:
+                if not resolved_device:
+                    raise ValueError("Device was not found for the provided identifier.")
+
+            conversation = conn.execute(
+                """
+                SELECT client_id, device_id
+                FROM conversations
+                WHERE id = ?
+                """,
+                (conversation_id,),
+            ).fetchone()
+            if not conversation:
+                raise ValueError("Conversation was not found.")
+            if resolved_client and int(conversation["client_id"]) != int(resolved_client["id"]):
+                raise ValueError("Conversation does not belong to the provided client.")
+            if resolved_device and int(conversation["device_id"]) != int(resolved_device["id"]):
+                raise ValueError("Conversation does not belong to the provided device.")
+
             rows = conn.execute(
                 """
                 SELECT
                     id,
+                    client_id,
+                    device_id,
                     conversation_id,
                     direction,
                     message_text,
@@ -1872,6 +2661,58 @@ class SQLiteChatStore:
             ).fetchone()
         return None
 
+    def _resolve_device(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        client_id: int | None = None,
+        device_id: int | None = None,
+        device_identifier: str | None = None,
+    ) -> sqlite3.Row | None:
+        if device_id is not None:
+            row = conn.execute(
+                """
+                SELECT id, client_id, device_identifier, device_name
+                FROM devices
+                WHERE id = ?
+                """,
+                (device_id,),
+            ).fetchone()
+        elif device_identifier:
+            row = conn.execute(
+                """
+                SELECT id, client_id, device_identifier, device_name
+                FROM devices
+                WHERE device_identifier = ?
+                """,
+                (device_identifier,),
+            ).fetchone()
+        else:
+            return None
+
+        if not row:
+            return None
+        if client_id is not None and int(row["client_id"]) != client_id:
+            return None
+        return row
+
+    def _get_conversation_scope(
+        self,
+        conn: sqlite3.Connection,
+        conversation_id: int,
+    ) -> sqlite3.Row:
+        row = conn.execute(
+            """
+            SELECT client_id, device_id
+            FROM conversations
+            WHERE id = ?
+            """,
+            (conversation_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("Conversation was not found.")
+        return row
+
     def _get_or_create_device_context(
         self,
         conn: sqlite3.Connection,
@@ -1898,6 +2739,11 @@ class SQLiteChatStore:
             (device_identifier,),
         ).fetchone()
         if row:
+            self._seed_default_catalog_for_scope(
+                conn,
+                client_id=int(row["client_id"]),
+                device_id=int(row["device_id"]),
+            )
             return DeviceContext(**dict(row))
 
         now = _utc_now()
@@ -1967,6 +2813,11 @@ class SQLiteChatStore:
                 now,
                 now,
             ),
+        )
+        self._seed_default_catalog_for_scope(
+            conn,
+            client_id=client_id,
+            device_id=int(device_cursor.lastrowid),
         )
         return DeviceContext(
             account_id=int(auto_account["id"]),

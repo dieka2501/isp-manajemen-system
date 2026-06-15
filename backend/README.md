@@ -120,6 +120,7 @@ Desain ini mendukung:
 - multiple client
 - satu client memiliki banyak device
 - setiap client memiliki token API sendiri
+- tabel data/operasional/katalog discope dengan `client_id` dan `device_id`
 
 Jika ingin membuat dan seed database tanpa menjalankan server, gunakan:
 
@@ -162,6 +163,11 @@ POST /api/v1/chat/learning/unprocessed/{question_id}/suggest
 GET  /api/v1/chat/conversations
 GET  /api/v1/chat/conversations/{conversation_id}/messages
 ```
+
+Endpoint data yang discope device menerima parameter `client_id` atau
+`client_token` bersama `device_id` atau `device_identifier`. Untuk
+`POST /api/v1/chat/stock-products`, client dan device wajib dikirim agar stok
+tidak tercampur antar device.
 
 ## Learning Queue untuk Pertanyaan yang Belum Terproses
 

@@ -63,7 +63,10 @@ class ISPCSChatService:
             }
 
         conversation_state = self.store.get_conversation_state(stored_message.conversation_id)
-        catalog = self.store.get_intent_agent_catalog()
+        catalog = self.store.get_intent_agent_catalog(
+            client_id=stored_message.device.client_id,
+            device_id=stored_message.device.device_id,
+        )
         agent_response = ISPCSAgent(catalog).answer(
             message_text,
             conversation_state=conversation_state,

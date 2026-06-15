@@ -1,6 +1,6 @@
 #AGENTS.md untuk ISP manajemen system
 
-#Deskripsi Project
+# Deskripsi Project
 - Buat boilerplate untuk ekosistem manajemen ISP.
 - Backend ini harus bisa diintegrasikan dengan semua modul yang akan dibuat.
 - Bahasa pemograman backend dibuat dengan python, atau nodejs. Sedangkan untuk FE menggunakan tailwind
@@ -15,6 +15,10 @@
 - Buat change.log jika tidak ada.
 - Penyimpanan data memakai SQLite
 - Jika ada masih ada koneksi ke API gsheet, segera diganti
+
+# Requirment
+- 1 client bisa mempunyai beberapa device
+- Semua client mempunyai data keyword, intent, dan messagenya sendiri-sendiri
 
 
 
