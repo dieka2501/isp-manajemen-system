@@ -29,7 +29,6 @@ const el = {
   loginButton: document.getElementById("loginButton"),
   loginMessage: document.getElementById("loginMessage"),
   logoutButton: document.getElementById("logoutButton"),
-  logoutTopButton: document.getElementById("logoutTopButton"),
   refreshButton: document.getElementById("refreshButton"),
   connectionStatus: document.getElementById("connectionStatus"),
   sidebarClientName: document.getElementById("sidebarClientName"),
@@ -604,10 +603,6 @@ function bindEvents() {
   });
 
   el.logoutButton.addEventListener("click", () => {
-    clearSession("Anda sudah keluar.");
-  });
-
-  el.logoutTopButton.addEventListener("click", () => {
     clearSession("Anda sudah keluar.");
   });
 

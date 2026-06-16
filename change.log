@@ -1,4 +1,5 @@
 2026-06-16
+- Removed the duplicate top client dashboard logout button, made the existing sidebar logout button more visible, and documented the guardrail to verify existing functions before adding duplicates.
 - Added explicit client dashboard logout controls and auto-cleared dashboard state when a client signs out or the session expires.
 - Changed and enforced client dashboard token/session expiry to 2 hours by default.
 - Fixed `/sqlexplorer` table loading after the write-mode SQL change so table metadata still uses a read-only SQLite connection.

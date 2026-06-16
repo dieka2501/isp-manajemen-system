@@ -263,11 +263,17 @@ body {
   background: #fee4e2;
 }
 
-.button-muted {
+.sidebar .button-danger {
   width: 100%;
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.06);
+  border-color: #f04438;
+  background: #d92d20;
   color: white;
+  box-shadow: 0 10px 24px rgba(217, 45, 32, 0.32);
+}
+
+.sidebar .button-danger:hover {
+  border-color: #f97066;
+  background: #b42318;
 }
 
 .status {

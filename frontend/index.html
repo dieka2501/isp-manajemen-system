@@ -9,7 +9,7 @@
       content="Dashboard client ISP untuk melihat customer, paket, billing, dan learning queue."
     />
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="/dashboard-assets/styles.css?v=client-dashboard-20260616-logout" />
+    <link rel="stylesheet" href="/dashboard-assets/styles.css?v=client-dashboard-20260616-logout-visible" />
   </head>
   <body>
     <section id="loginView" class="login-view">
@@ -47,7 +47,7 @@
           <button class="nav-item" type="button" data-view="billing">Billing</button>
           <button class="nav-item" type="button" data-view="learning">Learn Process</button>
         </nav>
-        <button id="logoutButton" class="button button-muted mt-auto" type="button">Keluar</button>
+        <button id="logoutButton" class="button button-danger mt-auto" type="button">Keluar</button>
       </aside>
 
       <main class="main-panel">
@@ -59,7 +59,6 @@
           <div class="topbar-actions">
             <span id="connectionStatus" class="status status-idle">Siap</span>
             <button id="refreshButton" class="button button-secondary" type="button">Refresh</button>
-            <button id="logoutTopButton" class="button button-danger" type="button">Keluar</button>
           </div>
         </header>
 
@@ -206,6 +205,6 @@
       </main>
     </section>
 
-    <script src="/dashboard-assets/app.js?v=client-dashboard-20260616-logout" defer></script>
+    <script src="/dashboard-assets/app.js?v=client-dashboard-20260616-logout-visible" defer></script>
   </body>
 </html>
