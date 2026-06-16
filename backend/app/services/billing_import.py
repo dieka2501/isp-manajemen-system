@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
@@ -31,10 +32,18 @@ def load_billing_rows(path: str | Path) -> list[dict[str, Any]]:
         return []
 
     with ZipFile(workbook_path) as archive:
-        shared_strings = _read_shared_strings(archive)
-        sheet_path = _first_sheet_path(archive)
-        sheet_xml = archive.read(sheet_path)
+        return _load_billing_rows_from_archive(archive)
 
+
+def load_billing_rows_from_bytes(data: bytes) -> list[dict[str, Any]]:
+    with ZipFile(BytesIO(data)) as archive:
+        return _load_billing_rows_from_archive(archive)
+
+
+def _load_billing_rows_from_archive(archive: ZipFile) -> list[dict[str, Any]]:
+    shared_strings = _read_shared_strings(archive)
+    sheet_path = _first_sheet_path(archive)
+    sheet_xml = archive.read(sheet_path)
     root = ElementTree.fromstring(sheet_xml)
     rows: list[list[Any]] = []
     for row in root.findall(f".//{{{SPREADSHEET_NS}}}sheetData/{{{SPREADSHEET_NS}}}row"):

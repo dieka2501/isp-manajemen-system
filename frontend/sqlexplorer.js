@@ -12,6 +12,7 @@ const state = {
   learningItems: [],
   learningIntents: [],
   selectedLearningId: null,
+  billingImportScopes: [],
 };
 
 const el = {
@@ -67,6 +68,12 @@ const el = {
   previewLearningButton: document.getElementById("previewLearningButton"),
   mappingStatus: document.getElementById("mappingStatus"),
   learningCandidates: document.getElementById("learningCandidates"),
+  billingImportClientSelect: document.getElementById("billingImportClientSelect"),
+  billingImportDeviceSelect: document.getElementById("billingImportDeviceSelect"),
+  billingImportFileInput: document.getElementById("billingImportFileInput"),
+  billingImportButton: document.getElementById("billingImportButton"),
+  billingImportStatus: document.getElementById("billingImportStatus"),
+  billingImportSummary: document.getElementById("billingImportSummary"),
 };
 
 const STORAGE_KEYS = {
@@ -148,6 +155,22 @@ async function api(path, options = {}) {
   return data;
 }
 
+async function uploadApi(path, formData) {
+  const response = await fetch(`/api/v1/sqlite${path}`, {
+    method: "POST",
+    credentials: "same-origin",
+    body: formData,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (response.status === 401) {
+      showAuthGate("Your session expired or login is required. Please sign in again.");
+    }
+    throw new Error(data.detail || `Request failed with status ${response.status}`);
+  }
+  return data;
+}
+
 async function chatApi(path, options = {}) {
   const response = await fetch(`/api/v1/chat${path}`, {
     credentials: "same-origin",
@@ -202,6 +225,9 @@ function switchView(view) {
   el.explorerTab.classList.toggle("action-secondary", view !== "explorer");
   el.learningTab.setAttribute("aria-selected", view === "learning" ? "true" : "false");
   el.explorerTab.setAttribute("aria-selected", view === "explorer" ? "true" : "false");
+  if (view === "explorer" && state.billingImportScopes.length === 0) {
+    loadBillingImportScopes().catch(showError);
+  }
 }
 
 async function checkAuth() {
@@ -330,6 +356,89 @@ function renderLearningCandidates(item) {
   el.learningCandidates.innerHTML = `<div class="space-y-3">${candidateHtml}</div>${entityHtml}`;
 }
 
+function renderBillingImportScopes() {
+  const selectedClientId = Number.parseInt(el.billingImportClientSelect.value, 10);
+  const selectedClient =
+    state.billingImportScopes.find((client) => client.id === selectedClientId) ||
+    state.billingImportScopes[0] ||
+    null;
+
+  el.billingImportClientSelect.innerHTML = state.billingImportScopes.length
+    ? state.billingImportScopes
+        .map((client) => {
+          const selected = selectedClient && client.id === selectedClient.id;
+          const label = `${client.name}${client.email ? ` (${client.email})` : ""}`;
+          return `<option value="${client.id}" ${selected ? "selected" : ""}>${escapeHtml(label)}</option>`;
+        })
+        .join("")
+    : `<option value="">No clients</option>`;
+
+  const devices = selectedClient?.devices || [];
+  el.billingImportDeviceSelect.innerHTML = devices.length
+    ? devices
+        .map((device, index) => {
+          const label = device.device_name || device.device_identifier || `Device #${device.id}`;
+          return `<option value="${device.id}" ${index === 0 ? "selected" : ""}>${escapeHtml(label)}</option>`;
+        })
+        .join("")
+    : `<option value="">No devices</option>`;
+}
+
+async function loadBillingImportScopes() {
+  const data = await api("/billing-import/scopes");
+  state.billingImportScopes = data.items || [];
+  renderBillingImportScopes();
+}
+
+function setBillingImportStatus(label, variant = "idle") {
+  el.billingImportStatus.className = `status-pill status-${variant}`;
+  el.billingImportStatus.textContent = label;
+}
+
+async function importBillingWorkbook() {
+  const file = el.billingImportFileInput.files?.[0];
+  if (!file) {
+    el.billingImportSummary.textContent = "Choose a .xlsx billing file first.";
+    setBillingImportStatus("File required", "error");
+    return;
+  }
+  if (!file.name.toLowerCase().endsWith(".xlsx")) {
+    el.billingImportSummary.textContent = "Only .xlsx files are supported.";
+    setBillingImportStatus("Invalid file", "error");
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("billing_file", file);
+  if (el.billingImportClientSelect.value) {
+    formData.append("client_id", el.billingImportClientSelect.value);
+  }
+  if (el.billingImportDeviceSelect.value) {
+    formData.append("device_id", el.billingImportDeviceSelect.value);
+  }
+
+  el.billingImportButton.disabled = true;
+  setBillingImportStatus("Importing...", "loading");
+  el.billingImportSummary.textContent = "Uploading workbook and importing rows into SQLite...";
+  try {
+    const data = await uploadApi("/billing-import", formData);
+    const item = data.item || {};
+    const clientName = item.client?.name || `Client #${item.client_id}`;
+    const deviceName = item.device?.device_name || item.device?.device_identifier || `Device #${item.device_id}`;
+    el.billingImportSummary.textContent =
+      `${data.filename} imported for ${clientName} / ${deviceName}: ` +
+      `${item.processed_rows || 0} row(s), ${item.customer_count || 0} customer(s), ` +
+      `${item.billing_count || 0} billing record(s), ${item.package_count || 0} package(s). ` +
+      `${item.skipped_rows || 0} row(s) skipped.`;
+    setBillingImportStatus("Imported", "success");
+    if (currentPath()) {
+      await loadTables({ autoRunFirstTable: false });
+    }
+  } finally {
+    el.billingImportButton.disabled = false;
+  }
+}
+
 async function loadLearningIntents() {
   const data = await chatApi("/learning/intents");
   state.learningIntents = data.items || [];
@@ -454,6 +563,7 @@ async function loginDashboard(event) {
       await loadLearningIntents();
       await loadLearningQueue();
       await loadSources();
+      await loadBillingImportScopes();
       if (currentPath()) {
         await loadTables({ autoRunFirstTable: true });
       }
@@ -492,10 +602,12 @@ async function logoutDashboard() {
     el.resultsTableContainer.innerHTML = "";
     state.learningItems = [];
     state.learningIntents = [];
+    state.billingImportScopes = [];
     state.selectedLearningId = null;
     el.learningList.innerHTML = "";
     el.learningCount.textContent = "No queue loaded.";
     renderLearningDetail();
+    renderBillingImportScopes();
     setStatus("Ready", "idle");
     setConnectionStatus("Signed out. Enter the dashboard password to continue.");
     showAuthGate("You have been signed out. Enter the dashboard password to continue.");
@@ -752,6 +864,12 @@ function bindEvents() {
     loadLearningQueue().catch(showError);
   });
 
+  el.billingImportClientSelect.addEventListener("change", renderBillingImportScopes);
+
+  el.billingImportButton.addEventListener("click", () => {
+    importBillingWorkbook().catch(showError);
+  });
+
   el.learningStatusFilter.addEventListener("change", () => {
     state.selectedLearningId = null;
     loadLearningQueue().catch(showError);
@@ -849,6 +967,7 @@ async function bootstrap() {
     await loadLearningIntents();
     await loadLearningQueue();
     await loadSources();
+    await loadBillingImportScopes();
     if (currentPath()) {
       el.pathInput.value = currentPath();
       await loadTables({ autoRunFirstTable: true });

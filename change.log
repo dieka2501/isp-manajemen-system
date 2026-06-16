@@ -1,4 +1,5 @@
 2026-06-16
+- Added admin-only billing workbook upload/import in `/sqlexplorer` so production billing/customer data can be imported into SQLite without committing customer spreadsheets to Git.
 - Added AGENTS.md guardrail that new feature work must preserve existing features, and any unavoidable removal or behavior change requires user confirmation first.
 - Added a client-facing ISP dashboard with a simple left menu, login screen, Bearer/JWT-style token auth, and views for customer, package, billing, and learn process data.
 - Extended the SQLite client schema with email, password hash, office address, PIC name, phone, and active status while keeping existing multi-client/device behavior.
