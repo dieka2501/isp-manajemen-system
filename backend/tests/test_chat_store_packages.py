@@ -15,7 +15,7 @@ from app.services.chat_store import SQLiteChatStore
 class SQLitePackageCatalogTests(unittest.TestCase):
     def _new_store(self, temp_dir: str) -> SQLiteChatStore:
         db_path = str(Path(temp_dir) / "chat.sqlite3")
-        return SQLiteChatStore(Settings(chat_database_path=db_path))
+        return SQLiteChatStore(Settings(chat_database_path=db_path, billing_sample_xlsx_path=""))
 
     def test_initialize_seeds_default_internet_packages(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -164,7 +164,7 @@ class SQLitePackageCatalogTests(unittest.TestCase):
                     """
                 )
 
-            store = SQLiteChatStore(Settings(chat_database_path=db_path))
+            store = SQLiteChatStore(Settings(chat_database_path=db_path, billing_sample_xlsx_path=""))
             store.initialize()
             store.create_account(name="ISP Legacy", slug="isp-legacy")
             client = store.create_client(account_slug="isp-legacy", name="Legacy Client")
@@ -265,7 +265,7 @@ class SQLitePackageCatalogTests(unittest.TestCase):
                     """
                 )
 
-            store = SQLiteChatStore(Settings(chat_database_path=db_path))
+            store = SQLiteChatStore(Settings(chat_database_path=db_path, billing_sample_xlsx_path=""))
             store.initialize()
             stored = store.save_incoming_message(
                 {

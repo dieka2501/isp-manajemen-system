@@ -1,61 +1,53 @@
+const STORAGE_KEYS = {
+  token: "clientDashboard.token",
+  expiresAt: "clientDashboard.expiresAt",
+};
+
 const state = {
-  sources: [],
-  sourcePath: "",
-  tables: [],
-  selectedTable: "",
-  query: `SELECT name, type FROM sqlite_master WHERE type IN ("table", "view") AND name NOT LIKE "sqlite_%" ORDER BY name;`,
-  result: null,
-  loading: false,
-  authenticated: false,
-  secretConfigured: false,
-  activeView: "learning",
+  token: localStorage.getItem(STORAGE_KEYS.token) || "",
+  expiresAt: Number(localStorage.getItem(STORAGE_KEYS.expiresAt) || 0),
+  client: null,
+  currentView: "overview",
+  summary: null,
+  customers: [],
+  packages: [],
+  billing: [],
   learningItems: [],
   learningIntents: [],
   selectedLearningId: null,
 };
 
 const el = {
-  authGate: document.getElementById("authGate"),
-  dashboardShell: document.getElementById("dashboardShell"),
-  learningTab: document.getElementById("learningTab"),
-  explorerTab: document.getElementById("explorerTab"),
-  learningView: document.getElementById("learningView"),
-  explorerView: document.getElementById("explorerView"),
+  loginView: document.getElementById("loginView"),
+  appShell: document.getElementById("appShell"),
   loginForm: document.getElementById("loginForm"),
-  passwordInput: document.getElementById("passwordInput"),
-  loginMessage: document.getElementById("loginMessage"),
+  loginIdentifier: document.getElementById("loginIdentifier"),
+  loginPassword: document.getElementById("loginPassword"),
   loginButton: document.getElementById("loginButton"),
-  sourceSelect: document.getElementById("sourceSelect"),
-  pathInput: document.getElementById("pathInput"),
-  loadButton: document.getElementById("loadButton"),
-  refreshButton: document.getElementById("refreshButton"),
-  tableFilter: document.getElementById("tableFilter"),
-  tablesList: document.getElementById("tablesList"),
-  tableCount: document.getElementById("tableCount"),
-  sourceExistsBadge: document.getElementById("sourceExistsBadge"),
-  sqlEditor: document.getElementById("sqlEditor"),
-  limitInput: document.getElementById("limitInput"),
-  runButton: document.getElementById("runButton"),
-  resetButton: document.getElementById("resetButton"),
-  queryStatus: document.getElementById("queryStatus"),
-  queryInfo: document.getElementById("queryInfo"),
-  resultMeta: document.getElementById("resultMeta"),
-  resultsEmptyState: document.getElementById("resultsEmptyState"),
-  resultsTableContainer: document.getElementById("resultsTableContainer"),
-  connectionStatus: document.getElementById("connectionStatus"),
+  loginMessage: document.getElementById("loginMessage"),
   logoutButton: document.getElementById("logoutButton"),
-  refreshLearningButton: document.getElementById("refreshLearningButton"),
+  refreshButton: document.getElementById("refreshButton"),
+  connectionStatus: document.getElementById("connectionStatus"),
+  sidebarClientName: document.getElementById("sidebarClientName"),
+  profileLine: document.getElementById("profileLine"),
+  viewTitle: document.getElementById("viewTitle"),
+  summaryGrid: document.getElementById("summaryGrid"),
+  recentBilling: document.getElementById("recentBilling"),
+  customerSearch: document.getElementById("customerSearch"),
+  customerStatusFilter: document.getElementById("customerStatusFilter"),
+  customerCount: document.getElementById("customerCount"),
+  customersTable: document.getElementById("customersTable"),
+  packageCount: document.getElementById("packageCount"),
+  packagesTable: document.getElementById("packagesTable"),
+  billingStatusFilter: document.getElementById("billingStatusFilter"),
+  billingCount: document.getElementById("billingCount"),
+  billingTable: document.getElementById("billingTable"),
   learningStatusFilter: document.getElementById("learningStatusFilter"),
-  learningLimitInput: document.getElementById("learningLimitInput"),
   learningList: document.getElementById("learningList"),
-  learningCount: document.getElementById("learningCount"),
-  learningDetailTitle: document.getElementById("learningDetailTitle"),
-  learningDetailMeta: document.getElementById("learningDetailMeta"),
-  learningStatusBadge: document.getElementById("learningStatusBadge"),
-  learningMessageBox: document.getElementById("learningMessageBox"),
-  learningReason: document.getElementById("learningReason"),
-  learningDetected: document.getElementById("learningDetected"),
-  learningSender: document.getElementById("learningSender"),
+  learningTitle: document.getElementById("learningTitle"),
+  learningBadge: document.getElementById("learningBadge"),
+  learningMessage: document.getElementById("learningMessage"),
+  learningMeta: document.getElementById("learningMeta"),
   mappingIntentSelect: document.getElementById("mappingIntentSelect"),
   mappingTypeSelect: document.getElementById("mappingTypeSelect"),
   mappingKeywordInput: document.getElementById("mappingKeywordInput"),
@@ -63,16 +55,17 @@ const el = {
   mappingWeightInput: document.getElementById("mappingWeightInput"),
   mappingNotesInput: document.getElementById("mappingNotesInput"),
   saveMappingButton: document.getElementById("saveMappingButton"),
-  suggestMappingButton: document.getElementById("suggestMappingButton"),
   previewLearningButton: document.getElementById("previewLearningButton"),
   mappingStatus: document.getElementById("mappingStatus"),
   learningCandidates: document.getElementById("learningCandidates"),
 };
 
-const STORAGE_KEYS = {
-  sourcePath: "sqliteExplorer.sourcePath",
-  query: "sqliteExplorer.query",
-  limit: "sqliteExplorer.limit",
+const viewTitles = {
+  overview: "Ringkasan",
+  customers: "Customer",
+  packages: "Paket",
+  billing: "Billing",
+  learning: "Learn Process",
 };
 
 function escapeHtml(value) {
@@ -84,75 +77,63 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function quoteIdentifier(value) {
-  return `"${String(value).replaceAll('"', '""')}"`;
+function formatCurrency(value) {
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0));
 }
 
-function setStatus(label, variant = "idle") {
-  el.queryStatus.className = `status-pill status-${variant}`;
-  el.queryStatus.textContent = label;
+function formatDate(value) {
+  if (!value) return "-";
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
 }
 
-function setConnectionStatus(message, kind = "idle") {
+function setStatus(message, type = "idle") {
   el.connectionStatus.textContent = message;
-  el.connectionStatus.className = "";
-  el.connectionStatus.className =
-    kind === "error"
-      ? "mt-1 text-xs text-rose-200/90"
-      : kind === "success"
-        ? "mt-1 text-xs text-emerald-100/85"
-        : "mt-1 text-xs text-emerald-100/80";
+  el.connectionStatus.className = `status status-${type}`;
 }
 
-function persistPreferences() {
-  localStorage.setItem(STORAGE_KEYS.sourcePath, el.pathInput.value.trim());
-  localStorage.setItem(STORAGE_KEYS.query, el.sqlEditor.value);
-  localStorage.setItem(STORAGE_KEYS.limit, el.limitInput.value);
-}
-
-function restorePreferences() {
-  const savedPath = localStorage.getItem(STORAGE_KEYS.sourcePath);
-  const savedQuery = localStorage.getItem(STORAGE_KEYS.query);
-  const savedLimit = localStorage.getItem(STORAGE_KEYS.limit);
-
-  if (savedPath) {
-    el.pathInput.value = savedPath;
-  }
-  if (savedQuery) {
-    el.sqlEditor.value = savedQuery;
-    state.query = savedQuery;
-  } else {
-    el.sqlEditor.value = state.query;
-  }
-  if (savedLimit) {
-    el.limitInput.value = savedLimit;
+function showLogin(message = "") {
+  el.loginView.classList.remove("hidden");
+  el.appShell.classList.add("hidden");
+  if (message) {
+    el.loginMessage.textContent = message;
   }
 }
 
-async function api(path, options = {}) {
-  const response = await fetch(`/api/v1/sqlite${path}`, {
-    credentials: "same-origin",
+function showApp() {
+  el.loginView.classList.add("hidden");
+  el.appShell.classList.remove("hidden");
+}
+
+function persistToken(token, expiresAt) {
+  state.token = token;
+  state.expiresAt = Number(expiresAt || 0);
+  localStorage.setItem(STORAGE_KEYS.token, state.token);
+  localStorage.setItem(STORAGE_KEYS.expiresAt, String(state.expiresAt));
+}
+
+function clearToken() {
+  state.token = "";
+  state.expiresAt = 0;
+  state.client = null;
+  localStorage.removeItem(STORAGE_KEYS.token);
+  localStorage.removeItem(STORAGE_KEYS.expiresAt);
+}
+
+async function dashboardApi(path, options = {}) {
+  const response = await fetch(`/api/v1/client-dashboard${path}`, {
     headers: {
       "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    if (response.status === 401 && !path.startsWith("/auth/")) {
-      showAuthGate("Your session expired or login is required. Please sign in again.");
-    }
-    throw new Error(data.detail || `Request failed with status ${response.status}`);
-  }
-  return data;
-}
-
-async function chatApi(path, options = {}) {
-  const response = await fetch(`/api/v1/chat${path}`, {
-    credentials: "same-origin",
-    headers: {
-      "Content-Type": "application/json",
+      Authorization: `Bearer ${state.token}`,
       ...(options.headers || {}),
     },
     ...options,
@@ -160,68 +141,151 @@ async function chatApi(path, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401) {
-      showAuthGate("Your session expired or login is required. Please sign in again.");
+      clearToken();
+      showLogin("Sesi habis. Silakan login lagi.");
     }
-    throw new Error(data.detail || `Request failed with status ${response.status}`);
+    throw new Error(data.detail || `Request gagal (${response.status})`);
   }
   return data;
 }
 
-function showAuthGate(message) {
-  state.authenticated = false;
-  el.authGate.classList.remove("hidden");
-  el.dashboardShell.classList.add("hidden");
-  if (message) {
-    el.loginMessage.textContent = message;
-  }
-}
-
-function showDashboard() {
-  el.authGate.classList.add("hidden");
-  el.dashboardShell.classList.remove("hidden");
-}
-
-function currentPath() {
-  return el.pathInput.value.trim();
-}
-
-function setCurrentSource(path) {
-  el.pathInput.value = path;
-  persistPreferences();
+function renderProfile() {
+  const client = state.client || {};
+  el.sidebarClientName.textContent = client.name || "Client";
+  el.profileLine.textContent = [
+    client.email,
+    client.pic_name ? `PIC ${client.pic_name}` : "",
+    client.office_address,
+  ]
+    .filter(Boolean)
+    .join(" | ");
 }
 
 function switchView(view) {
-  state.activeView = view;
-  el.learningView.classList.toggle("hidden", view !== "learning");
-  el.explorerView.classList.toggle("hidden", view !== "explorer");
-  el.learningTab.classList.toggle("is-active", view === "learning");
-  el.explorerTab.classList.toggle("is-active", view === "explorer");
-  el.learningTab.classList.toggle("action-primary", view === "learning");
-  el.learningTab.classList.toggle("action-secondary", view !== "learning");
-  el.explorerTab.classList.toggle("action-primary", view === "explorer");
-  el.explorerTab.classList.toggle("action-secondary", view !== "explorer");
-  el.learningTab.setAttribute("aria-selected", view === "learning" ? "true" : "false");
-  el.explorerTab.setAttribute("aria-selected", view === "explorer" ? "true" : "false");
+  state.currentView = view;
+  document.querySelectorAll(".view").forEach((node) => {
+    node.classList.toggle("hidden", node.id !== `${view}View`);
+  });
+  document.querySelectorAll(".nav-item").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.view === view);
+  });
+  el.viewTitle.textContent = viewTitles[view] || "Dashboard";
 }
 
-async function checkAuth() {
-  el.loginMessage.textContent = "Checking login status...";
-  const data = await api("/auth/status");
-  state.authenticated = Boolean(data.authenticated);
-  state.secretConfigured = Boolean(data.secret_configured);
+function metric(label, value, detail = "") {
+  return `
+    <div class="metric-card">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      <p class="mt-2 text-sm text-slate-500">${escapeHtml(detail)}</p>
+    </div>
+  `;
+}
 
-  if (state.authenticated) {
-    showDashboard();
-    if (state.secretConfigured) {
-      setConnectionStatus("Dashboard unlocked.", "success");
-    } else {
-      setConnectionStatus("Dashboard login is disabled in this environment.", "success");
-    }
-    return true;
+function renderSummary() {
+  const item = state.summary || {};
+  el.summaryGrid.innerHTML = [
+    metric("Customer aktif", item.active_customers || 0, `${item.total_customers || 0} total customer`),
+    metric("Paket aktif", item.total_packages || 0, "Dari katalog paket client"),
+    metric("Billing lunas", item.paid_count || 0, `${item.total_billing || 0} total billing`),
+    metric("Tunggakan", formatCurrency(item.arrears_amount || 0), `${item.unpaid_count || 0} belum selesai`),
+  ].join("");
+  renderRecentBilling(item.recent_billing || []);
+}
+
+function renderRecentBilling(rows) {
+  renderTable(el.recentBilling, [
+    ["Customer", (row) => row.customer_name],
+    ["Paket", (row) => row.package_name || "-"],
+    ["Periode", (row) => row.billing_period || "-"],
+    ["Tagihan", (row) => formatCurrency(row.amount)],
+    ["Status", (row) => html(statusBadge(row.status))],
+  ], rows);
+}
+
+function statusBadge(status) {
+  const labelMap = {
+    paid: "Lunas",
+    unpaid: "Belum bayar",
+    partial: "Sebagian",
+    free: "Free",
+    void: "Void",
+    active: "Aktif",
+    inactive: "Nonaktif",
+    suspended: "Suspend",
+    pending: "Pending",
+    mapped: "Mapped",
+    ignored: "Ignored",
+  };
+  const safeStatus = String(status || "idle").toLowerCase();
+  return `<span class="badge badge-${escapeHtml(safeStatus)}">${escapeHtml(labelMap[safeStatus] || safeStatus)}</span>`;
+}
+
+function html(value) {
+  return { __html: value };
+}
+
+function renderTable(container, columns, rows) {
+  if (!rows.length) {
+    container.innerHTML = `<div class="empty-state">Belum ada data.</div>`;
+    return;
   }
+  const head = columns.map(([label]) => `<th>${escapeHtml(label)}</th>`).join("");
+  const body = rows
+    .map((row) => {
+      const cells = columns
+        .map(([, render]) => {
+          const value = render(row);
+          return `<td>${value && typeof value === "object" && "__html" in value ? value.__html : escapeHtml(value)}</td>`;
+        })
+        .join("");
+      return `<tr>${cells}</tr>`;
+    })
+    .join("");
+  container.innerHTML = `<table class="data-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
 
-  showAuthGate("Enter the dashboard password to continue.");
-  return false;
+function renderCustomers() {
+  el.customerCount.textContent = `${state.customers.length} data`;
+  renderTable(el.customersTable, [
+    ["Kode", (row) => row.customer_code || "-"],
+    ["Nama", (row) => row.name],
+    ["No HP", (row) => row.phone || "-"],
+    ["Paket", (row) => row.package_name || "-"],
+    ["PPPoE", (row) => row.pppoe_username || "-"],
+    ["Alamat", (row) => row.address || "-"],
+    ["Status", (row) => html(statusBadge(row.status))],
+    ["Tunggakan", (row) => formatCurrency(row.total_arrears)],
+  ], state.customers);
+}
+
+function renderPackages() {
+  el.packageCount.textContent = `${state.packages.length} paket`;
+  renderTable(el.packagesTable, [
+    ["Kode", (row) => row.package_code],
+    ["Nama paket", (row) => row.package_name],
+    ["Speed", (row) => `${row.speed_mbps || 0} Mbps`],
+    ["Harga", (row) => formatCurrency(row.monthly_price)],
+    ["Device", (row) => row.device_name || row.device_identifier || "-"],
+    ["Customer", (row) => row.customer_count || 0],
+    ["Status", (row) => row.is_active ? "Aktif" : "Nonaktif"],
+  ], state.packages);
+}
+
+function renderBilling() {
+  el.billingCount.textContent = `${state.billing.length} data`;
+  renderTable(el.billingTable, [
+    ["Invoice", (row) => row.invoice_number],
+    ["Customer", (row) => row.customer_name],
+    ["Paket", (row) => row.package_name || "-"],
+    ["Periode", (row) => row.billing_period || "-"],
+    ["Tagihan", (row) => formatCurrency(row.amount)],
+    ["Bayar", (row) => formatCurrency(row.paid_amount)],
+    ["Tunggakan", (row) => formatCurrency(row.arrears_amount)],
+    ["Status", (row) => html(statusBadge(row.status))],
+    ["Tanggal", (row) => formatDate(row.payment_date)],
+    ["Rekening", (row) => row.payment_account || "-"],
+  ], state.billing);
 }
 
 function selectedLearningItem() {
@@ -229,135 +293,212 @@ function selectedLearningItem() {
 }
 
 function renderLearningIntents() {
-  el.mappingIntentSelect.innerHTML = state.learningIntents
-    .map((intent) => {
-      return `<option value="${escapeHtml(intent.intent_code)}">${escapeHtml(intent.intent_code)} - ${escapeHtml(intent.intent_name)}</option>`;
-    })
-    .join("");
+  el.mappingIntentSelect.innerHTML = state.learningIntents.length
+    ? state.learningIntents
+        .map((intent) => `<option value="${escapeHtml(intent.intent_code)}">${escapeHtml(intent.intent_code)} - ${escapeHtml(intent.intent_name)}</option>`)
+        .join("")
+    : `<option value="">Belum ada intent</option>`;
 }
 
 function renderLearningList() {
-  el.learningCount.textContent = `${state.learningItems.length} item(s)`;
   el.learningList.innerHTML = state.learningItems.length
     ? state.learningItems
         .map((item) => {
           const selected = item.id === state.selectedLearningId;
-          const detected = item.detected_intent_code || "unknown";
-          const confidence = Math.round(Number(item.confidence || 0) * 100);
           return `
-            <button class="learning-card w-full text-left p-4 ${selected ? "is-selected" : ""}" data-learning-id="${item.id}">
-              <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <div class="line-clamp-2 text-sm font-semibold text-white">${escapeHtml(item.message_text)}</div>
-                  <div class="mt-2 text-xs text-slate-400">${escapeHtml(item.sender_name || item.sender_number || "Unknown sender")}</div>
-                </div>
-                <span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-300">${escapeHtml(item.status)}</span>
-              </div>
-              <div class="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
-                <span>${escapeHtml(item.reason)}</span>
-                <span>${escapeHtml(detected)} ${confidence}%</span>
-                <span>${escapeHtml(item.language)}</span>
-              </div>
+            <button class="learning-item ${selected ? "is-selected" : ""}" type="button" data-learning-id="${item.id}">
+              <span class="text-sm font-semibold text-slate-950">${escapeHtml(item.message_text)}</span>
+              <span class="text-xs text-slate-500">${escapeHtml(item.sender_name || item.sender_number || "Unknown")} | ${escapeHtml(item.created_at)}</span>
+              <span>${statusBadge(item.status)}</span>
             </button>
           `;
         })
         .join("")
-    : `<div class="p-5 text-sm text-slate-400">No questions found for this filter.</div>`;
+    : `<div class="empty-state">Queue kosong.</div>`;
 }
 
 function renderLearningDetail() {
   const item = selectedLearningItem();
   if (!item) {
-    el.learningDetailTitle.textContent = "Select a question";
-    el.learningDetailMeta.textContent = "Pick a pending customer question from the queue to map it into native intent data.";
-    el.learningStatusBadge.textContent = "Waiting";
-    el.learningStatusBadge.className = "status-pill status-idle";
-    el.learningMessageBox.textContent = "No question selected.";
-    el.learningReason.textContent = "-";
-    el.learningDetected.textContent = "-";
-    el.learningSender.textContent = "-";
+    el.learningTitle.textContent = "Pilih pertanyaan";
+    el.learningBadge.textContent = "Waiting";
+    el.learningBadge.className = "status status-idle";
+    el.learningMessage.textContent = "Belum ada pertanyaan dipilih.";
+    el.learningMeta.innerHTML = "";
     el.mappingKeywordInput.value = "";
     el.mappingNormalizedInput.value = "";
     el.mappingNotesInput.value = "";
-    el.learningCandidates.textContent = "No candidates loaded.";
-    el.mappingStatus.textContent = "Select a question to begin.";
+    el.mappingStatus.textContent = "Pilih pertanyaan dari queue.";
+    el.learningCandidates.textContent = "Belum ada data.";
     return;
   }
 
-  el.learningDetailTitle.textContent = `Question #${item.id}`;
-  el.learningDetailMeta.textContent = `${item.client_name} | ${item.device_identifier} | ${item.created_at}`;
-  el.learningStatusBadge.textContent = item.status;
-  el.learningStatusBadge.className =
-    "status-pill " + (item.status === "pending" ? "status-loading" : item.status === "mapped" ? "status-success" : "status-idle");
-  el.learningMessageBox.textContent = item.message_text;
-  el.learningReason.textContent = item.reason;
-  el.learningDetected.textContent = `${item.detected_intent_code || "unknown"} (${Math.round(Number(item.confidence || 0) * 100)}%)`;
-  el.learningSender.textContent = item.sender_name || item.sender_number || "-";
-  el.mappingKeywordInput.value = item.normalized_text || item.message_text;
+  el.learningTitle.textContent = `Question #${item.id}`;
+  el.learningBadge.textContent = item.status;
+  el.learningBadge.className =
+    "status " + (item.status === "pending" ? "status-loading" : item.status === "mapped" ? "status-success" : "status-idle");
+  el.learningMessage.textContent = item.message_text;
+  el.learningMeta.innerHTML = [
+    ["Device", item.device_identifier || "-"],
+    ["Detected", `${item.detected_intent_code || "unknown"} (${Math.round(Number(item.confidence || 0) * 100)}%)`],
+    ["Reason", item.reason || "-"],
+  ]
+    .map(([label, value]) => `<div class="rounded-lg border border-slate-200 p-3"><p class="text-xs font-bold uppercase tracking-wide text-slate-500">${escapeHtml(label)}</p><p class="mt-1 text-sm text-slate-800">${escapeHtml(value)}</p></div>`)
+    .join("");
+  el.mappingKeywordInput.value = item.normalized_text || item.message_text || "";
   el.mappingNormalizedInput.value = item.normalized_text || "";
-  el.mappingNotesInput.value = `Mapped from question #${item.id}`;
+  el.mappingNotesInput.value = `Mapped dari question #${item.id}`;
   if (item.mapped_intent_code) {
     el.mappingIntentSelect.value = item.mapped_intent_code;
   }
   renderLearningCandidates(item);
-  el.mappingStatus.textContent = "Choose an intent and save mapping.";
+  el.mappingStatus.textContent = "Pilih intent lalu simpan.";
 }
 
 function renderLearningCandidates(item) {
   const candidates = item.candidates || [];
   const entities = item.entities || [];
-  const candidateHtml = candidates.length
+  const candidateRows = candidates.length
     ? candidates
         .map((candidate) => {
-          return `
-            <div class="candidate-card">
-              <div class="flex flex-wrap items-center justify-between gap-3">
-                <div class="font-semibold text-white">${escapeHtml(candidate.intent_code)}</div>
-                <span class="text-xs text-slate-400">${Math.round(Number(candidate.confidence || 0) * 100)}% | score ${escapeHtml(candidate.score)}</span>
-              </div>
-              <div class="mt-2 text-xs leading-5 text-slate-400">${escapeHtml((candidate.matched_keywords || []).join(", ") || "No keywords")}</div>
-            </div>
-          `;
+          const matched = (candidate.matched_keywords || []).join(", ") || "-";
+          return `<tr><td>${escapeHtml(candidate.intent_code)}</td><td>${Math.round(Number(candidate.confidence || 0) * 100)}%</td><td>${escapeHtml(matched)}</td></tr>`;
         })
         .join("")
-    : `<div class="text-sm text-slate-400">No native candidates were found.</div>`;
+    : `<tr><td colspan="3">Tidak ada kandidat native.</td></tr>`;
   const entityHtml = entities.length
-    ? `<div class="mt-4 text-xs uppercase tracking-[0.22em] text-slate-500">Entities</div>
-       <div class="mt-2 flex flex-wrap gap-2">${entities
-         .map((entity) => `<span class="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">${escapeHtml(entity.entity_code)}: ${escapeHtml(entity.value)}</span>`)
-         .join("")}</div>`
+    ? `<div class="mt-4 flex flex-wrap gap-2">${entities
+        .map((entity) => `<span class="badge status-idle">${escapeHtml(entity.entity_code)}: ${escapeHtml(entity.value)}</span>`)
+        .join("")}</div>`
     : "";
-  el.learningCandidates.innerHTML = `<div class="space-y-3">${candidateHtml}</div>${entityHtml}`;
+  el.learningCandidates.innerHTML = `
+    <table class="data-table min-w-full">
+      <thead><tr><th>Intent</th><th>Confidence</th><th>Keyword</th></tr></thead>
+      <tbody>${candidateRows}</tbody>
+    </table>
+    ${entityHtml}
+  `;
+}
+
+async function login(event) {
+  event.preventDefault();
+  const identifier = el.loginIdentifier.value.trim();
+  const password = el.loginPassword.value;
+  if (!identifier || !password) {
+    el.loginMessage.textContent = "Email/token dan password wajib diisi.";
+    return;
+  }
+
+  el.loginButton.disabled = true;
+  el.loginMessage.textContent = "Masuk...";
+  try {
+    const response = await fetch("/api/v1/client-dashboard/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identifier, password }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.detail || "Login gagal.");
+    }
+    persistToken(data.access_token, data.expires_at);
+    state.client = data.client;
+    el.loginPassword.value = "";
+    await loadDashboard();
+  } catch (error) {
+    el.loginMessage.textContent = error.message || String(error);
+  } finally {
+    el.loginButton.disabled = false;
+  }
+}
+
+async function loadDashboard() {
+  if (!state.token || (state.expiresAt && state.expiresAt * 1000 < Date.now())) {
+    clearToken();
+    showLogin("Silakan login untuk membuka dashboard.");
+    return;
+  }
+
+  showApp();
+  setStatus("Memuat data...", "loading");
+  const me = await dashboardApi("/auth/me");
+  state.client = me.client;
+  renderProfile();
+  await Promise.all([
+    loadSummary(),
+    loadCustomers(),
+    loadPackages(),
+    loadBilling(),
+    loadLearningIntents(),
+    loadLearningQueue(),
+  ]);
+  switchView(state.currentView);
+  setStatus("Data terbaru", "success");
+}
+
+async function loadSummary() {
+  const data = await dashboardApi("/summary");
+  state.summary = data.item || {};
+  renderSummary();
+}
+
+async function loadCustomers() {
+  const params = new URLSearchParams({
+    status: el.customerStatusFilter.value || "all",
+    limit: "500",
+  });
+  if (el.customerSearch.value.trim()) {
+    params.set("query", el.customerSearch.value.trim());
+  }
+  const data = await dashboardApi(`/customers?${params.toString()}`);
+  state.customers = data.items || [];
+  renderCustomers();
+}
+
+async function loadPackages() {
+  const data = await dashboardApi("/packages");
+  state.packages = data.items || [];
+  renderPackages();
+}
+
+async function loadBilling() {
+  const params = new URLSearchParams({
+    status: el.billingStatusFilter.value || "all",
+    limit: "500",
+  });
+  const data = await dashboardApi(`/billing?${params.toString()}`);
+  state.billing = data.items || [];
+  renderBilling();
 }
 
 async function loadLearningIntents() {
-  const data = await chatApi("/learning/intents");
+  const data = await dashboardApi("/learning/intents");
   state.learningIntents = data.items || [];
   renderLearningIntents();
 }
 
 async function loadLearningQueue() {
-  const status = el.learningStatusFilter.value || "pending";
-  const limit = Number.parseInt(el.learningLimitInput.value, 10) || 50;
-  el.mappingStatus.textContent = "Loading learning queue...";
-  const data = await chatApi(`/learning/unprocessed?status=${encodeURIComponent(status)}&limit=${limit}`);
+  const params = new URLSearchParams({
+    status: el.learningStatusFilter.value || "pending",
+    limit: "100",
+  });
+  const data = await dashboardApi(`/learning/unprocessed?${params.toString()}`);
   state.learningItems = data.items || [];
   if (!state.learningItems.some((item) => item.id === state.selectedLearningId)) {
     state.selectedLearningId = state.learningItems[0]?.id || null;
   }
   renderLearningList();
   renderLearningDetail();
-  el.mappingStatus.textContent = state.learningItems.length ? "Learning queue loaded." : "No items for this filter.";
 }
 
-async function saveLearningMapping() {
+async function saveMapping() {
   const item = selectedLearningItem();
   if (!item) {
-    el.mappingStatus.textContent = "Select a question first.";
+    el.mappingStatus.textContent = "Pilih pertanyaan dulu.";
     return;
   }
   const mappingType = el.mappingTypeSelect.value;
-  const body = {
+  const payload = {
     mapping_type: mappingType,
     intent_code: mappingType === "ignore" ? null : el.mappingIntentSelect.value,
     keyword: el.mappingKeywordInput.value.trim() || null,
@@ -366,401 +507,74 @@ async function saveLearningMapping() {
     notes: el.mappingNotesInput.value.trim() || null,
   };
   el.saveMappingButton.disabled = true;
-  el.mappingStatus.textContent = "Saving mapping...";
+  el.mappingStatus.textContent = "Menyimpan...";
   try {
-    const data = await chatApi(`/learning/unprocessed/${item.id}/map`, {
+    const data = await dashboardApi(`/learning/unprocessed/${item.id}/map`, {
       method: "POST",
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     });
     const updated = data.item;
     state.learningItems = state.learningItems.map((current) => (current.id === updated.id ? updated : current));
     renderLearningList();
     renderLearningDetail();
-    el.mappingStatus.textContent = "Mapping saved. Native intent data is updated in SQLite.";
+    el.mappingStatus.textContent = "Mapping tersimpan.";
   } finally {
     el.saveMappingButton.disabled = false;
   }
 }
 
-async function previewSelectedLearningItem() {
+async function previewLearning() {
   const item = selectedLearningItem();
   if (!item) {
-    el.mappingStatus.textContent = "Select a question first.";
+    el.mappingStatus.textContent = "Pilih pertanyaan dulu.";
     return;
   }
-  el.mappingStatus.textContent = "Previewing selected question...";
-  const data = await chatApi("/agent/preview", {
+  el.mappingStatus.textContent = "Memuat preview...";
+  const data = await dashboardApi("/agent/preview", {
     method: "POST",
-    body: JSON.stringify({ message: item.message_text }),
+    body: JSON.stringify({ message: item.message_text, device_id: item.device_id }),
   });
-  const analysis = data.item || {};
-  el.learningCandidates.innerHTML = `<pre class="custom-scroll overflow-auto rounded-2xl bg-black/25 p-4 text-xs text-slate-200">${escapeHtml(JSON.stringify(analysis, null, 2))}</pre>`;
-  el.mappingStatus.textContent = `Preview: ${analysis.intent?.intent_code || "unknown"}`;
-}
-
-async function suggestLearningMapping() {
-  const item = selectedLearningItem();
-  if (!item) {
-    el.mappingStatus.textContent = "Select a question first.";
-    return;
-  }
-  el.suggestMappingButton.disabled = true;
-  el.mappingStatus.textContent = "Asking OpenAI for a reviewable suggestion...";
-  try {
-    const data = await chatApi(`/learning/unprocessed/${item.id}/suggest`, {
-      method: "POST",
-    });
-    const suggestion = data.item || {};
-    if (suggestion.intent_code) {
-      el.mappingIntentSelect.value = suggestion.intent_code;
-    }
-    if (suggestion.mapping_type) {
-      el.mappingTypeSelect.value = suggestion.mapping_type;
-    }
-    el.mappingKeywordInput.value = suggestion.keyword || item.message_text || "";
-    el.mappingNormalizedInput.value = suggestion.normalized_keyword || "";
-    el.mappingWeightInput.value = suggestion.weight || 4;
-    el.mappingNotesInput.value = suggestion.reason || `OpenAI suggested mapping from question #${item.id}`;
-    el.learningCandidates.innerHTML = `<pre class="custom-scroll overflow-auto rounded-2xl bg-black/25 p-4 text-xs text-slate-200">${escapeHtml(JSON.stringify(suggestion, null, 2))}</pre>`;
-    el.mappingStatus.textContent = "OpenAI suggestion loaded. Review it before saving.";
-  } finally {
-    el.suggestMappingButton.disabled = false;
-  }
-}
-
-async function loginDashboard(event) {
-  event.preventDefault();
-  const password = el.passwordInput.value.trim();
-  if (!password) {
-    el.loginMessage.textContent = "Please enter the dashboard password.";
-    return;
-  }
-
-  el.loginButton.disabled = true;
-  el.loginMessage.textContent = "Signing in...";
-
-  try {
-    const data = await api("/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ password }),
-    });
-    state.authenticated = Boolean(data.authenticated);
-    state.secretConfigured = Boolean(data.secret_configured);
-    if (state.authenticated) {
-      showDashboard();
-      el.passwordInput.value = "";
-      setConnectionStatus("Dashboard unlocked.", "success");
-      switchView("learning");
-      await loadLearningIntents();
-      await loadLearningQueue();
-      await loadSources();
-      if (currentPath()) {
-        await loadTables({ autoRunFirstTable: true });
-      }
-      return;
-    }
-
-    el.loginMessage.textContent = "Login failed. Please try again.";
-  } catch (error) {
-    el.loginMessage.textContent = error.message || String(error);
-    showError(error);
-  } finally {
-    el.loginButton.disabled = false;
-  }
-}
-
-async function logoutDashboard() {
-  try {
-    await api("/auth/logout", {
-      method: "POST",
-    });
-  } finally {
-    state.authenticated = false;
-    state.sources = [];
-    state.tables = [];
-    state.selectedTable = "";
-    state.sourcePath = "";
-    state.result = null;
-    el.sourceSelect.innerHTML = '<option value="">No configured sources</option>';
-    el.tablesList.innerHTML = "";
-    el.tableCount.textContent = "No database loaded.";
-    el.sourceExistsBadge.textContent = "Waiting";
-    el.sourceExistsBadge.className =
-      "rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300";
-    el.resultsEmptyState.classList.remove("hidden");
-    el.resultsTableContainer.classList.add("hidden");
-    el.resultsTableContainer.innerHTML = "";
-    state.learningItems = [];
-    state.learningIntents = [];
-    state.selectedLearningId = null;
-    el.learningList.innerHTML = "";
-    el.learningCount.textContent = "No queue loaded.";
-    renderLearningDetail();
-    setStatus("Ready", "idle");
-    setConnectionStatus("Signed out. Enter the dashboard password to continue.");
-    showAuthGate("You have been signed out. Enter the dashboard password to continue.");
-  }
-}
-
-function renderSources() {
-  const customPath = currentPath();
-  const sourceValues = new Set(state.sources.map((source) => source.path));
-  const customOption =
-    customPath && !sourceValues.has(customPath)
-      ? `<option value="${escapeHtml(customPath)}" selected>Custom path: ${escapeHtml(customPath)}</option>`
-      : "";
-  const options = state.sources
-    .map((source, index) => {
-      const selected = source.path === currentPath() || (!currentPath() && index === 0);
-      return `<option value="${escapeHtml(source.path)}" ${selected ? "selected" : ""}>${escapeHtml(source.name)}${source.exists ? "" : " (missing)"}</option>`;
-    })
-    .join("");
-  el.sourceSelect.innerHTML = customOption + (options || `<option value="">No configured sources</option>`);
-}
-
-function applySelectedSourceFromDropdown() {
-  const selected = state.sources.find((source) => source.path === el.sourceSelect.value);
-  if (selected) {
-    setCurrentSource(selected.path);
-  }
-}
-
-function renderTables() {
-  const filter = el.tableFilter.value.trim().toLowerCase();
-  const visibleTables = state.tables.filter((table) => {
-    if (!filter) return true;
-    const columnNames = (table.columns || []).map((column) => column.name).join(" ");
-    return `${table.name} ${columnNames}`.toLowerCase().includes(filter);
-  });
-
-  el.tableCount.textContent = `${visibleTables.length} table(s) visible`;
-  el.tablesList.innerHTML = visibleTables.length
-    ? visibleTables
-        .map((table) => {
-          const columns = (table.columns || []).map((column) => column.name).slice(0, 4).join(", ");
-          return `
-            <button
-              class="table-card w-full text-left p-4 ${state.selectedTable === table.name ? "is-selected" : ""}"
-              data-table="${escapeHtml(table.name)}"
-            >
-              <div class="flex items-start justify-between gap-3">
-                <div>
-                  <div class="text-sm font-semibold text-white">${escapeHtml(table.name)}</div>
-                  <div class="mt-1 text-xs uppercase tracking-[0.24em] text-slate-500">${escapeHtml(table.type)}</div>
-                </div>
-                <span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-300">
-                  ${table.row_count ?? "?"} rows
-                </span>
-              </div>
-              <div class="mt-3 text-xs leading-5 text-slate-400">
-                ${escapeHtml(columns || "No columns available")}
-              </div>
-            </button>
-          `;
-        })
-        .join("")
-    : `<div class="p-5 text-sm text-slate-400">No tables match the current filter.</div>`;
-
-  el.sourceExistsBadge.textContent = state.sourcePath ? (state.sourceExists ? "File found" : "Missing file") : "Waiting";
-  el.sourceExistsBadge.className =
-    "rounded-full border px-3 py-1 text-xs " +
-    (state.sourceExists
-      ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200"
-      : "border-amber-400/20 bg-amber-400/10 text-amber-200");
-}
-
-function renderResultTable(result) {
-  const columns = result.columns || [];
-  const rows = result.rows || [];
-
-  el.resultsEmptyState.classList.toggle("hidden", columns.length > 0);
-  el.resultsTableContainer.classList.toggle("hidden", columns.length === 0);
-
-  if (!columns.length) {
-    el.resultsTableContainer.innerHTML = "";
-    el.resultMeta.textContent = "No columns returned";
-    return;
-  }
-
-  const table = document.createElement("table");
-  table.className = "data-table w-full";
-
-  const thead = document.createElement("thead");
-  const headerRow = document.createElement("tr");
-  columns.forEach((column) => {
-    const th = document.createElement("th");
-    th.textContent = column;
-    headerRow.appendChild(th);
-  });
-  thead.appendChild(headerRow);
-
-  const tbody = document.createElement("tbody");
-  if (rows.length === 0) {
-    const tr = document.createElement("tr");
-    const td = document.createElement("td");
-    td.colSpan = columns.length;
-    td.className = "p-6 text-center text-sm text-slate-400";
-    td.textContent = "Query returned no rows.";
-    tr.appendChild(td);
-    tbody.appendChild(tr);
-  } else {
-    rows.forEach((row) => {
-      const tr = document.createElement("tr");
-      columns.forEach((column) => {
-        const td = document.createElement("td");
-        const value = row[column];
-        td.innerHTML =
-          value === null || value === undefined || value === ""
-            ? '<span class="text-slate-500">NULL</span>'
-            : escapeHtml(value);
-        tr.appendChild(td);
-      });
-      tbody.appendChild(tr);
-    });
-  }
-
-  table.appendChild(thead);
-  table.appendChild(tbody);
-
-  el.resultsTableContainer.innerHTML = "";
-  el.resultsTableContainer.appendChild(table);
-  el.resultMeta.textContent = `${result.row_count} row(s) ${result.truncated ? "(truncated)" : ""}`;
-}
-
-async function loadSources() {
-  setStatus("Loading sources...", "loading");
-  setConnectionStatus("Fetching configured SQLite sources...");
-  const data = await api("/sources");
-  state.sources = data.items || [];
-  renderSources();
-
-  const savedPath = localStorage.getItem(STORAGE_KEYS.sourcePath);
-  const preferred =
-    (savedPath ? state.sources.find((source) => source.path === savedPath) : null) ||
-    data.default_source ||
-    state.sources[0];
-  if (savedPath) {
-    setCurrentSource(savedPath);
-  } else if (preferred) {
-    setCurrentSource(preferred.path);
-  }
-  el.sourceSelect.value = currentPath();
-  setConnectionStatus(`${state.sources.length} configured source(s) loaded.`, "success");
-  setStatus("Ready", "success");
-}
-
-async function loadTables({ autoRunFirstTable = true } = {}) {
-  const path = currentPath();
-  if (!path) {
-    setStatus("Choose a file first", "error");
-    throw new Error("Please choose a SQLite file path first.");
-  }
-
-  state.sourcePath = path;
-  setStatus("Loading tables...", "loading");
-  setConnectionStatus(`Reading table list from ${path}...`);
-
-  const data = await api(`/tables?path=${encodeURIComponent(path)}`);
-  state.tables = data.tables || [];
-  state.sourceExists = Boolean(data.source?.exists);
-  state.selectedTable = "";
-  renderTables();
-  setStatus(`Loaded ${state.tables.length} table(s)`, "success");
-  setConnectionStatus(
-    state.sourceExists ? `Exploring ${data.source.resolved_path}` : `File not found: ${data.source.resolved_path}`,
-    state.sourceExists ? "success" : "error"
-  );
-
-  if (autoRunFirstTable && state.tables.length > 0) {
-    await loadTablePreview(state.tables[0].name);
-  } else {
-    el.queryInfo.textContent = state.tables.length
-      ? "Click a table to inspect its rows."
-      : "This database does not contain user tables yet.";
-    el.resultsEmptyState.classList.remove("hidden");
-    el.resultsTableContainer.classList.add("hidden");
-    el.resultsTableContainer.innerHTML = "";
-  }
-}
-
-async function loadTablePreview(tableName) {
-  state.selectedTable = tableName;
-  renderTables();
-  const limit = Number.parseInt(el.limitInput.value, 10) || 250;
-  const sql = `SELECT * FROM ${quoteIdentifier(tableName)} LIMIT ${limit};`;
-  el.sqlEditor.value = sql;
-  state.query = sql;
-  persistPreferences();
-  await runQuery();
-}
-
-async function runQuery() {
-  const path = currentPath();
-  const sql = el.sqlEditor.value.trim();
-  const limit = Number.parseInt(el.limitInput.value, 10) || 250;
-
-  if (!path) {
-    throw new Error("Choose a SQLite file before running a query.");
-  }
-  if (!sql) {
-    throw new Error("Query cannot be empty.");
-  }
-
-  setStatus("Running query...", "loading");
-  setConnectionStatus(`Executing read-only SQL against ${path}...`);
-  el.queryInfo.textContent = "Query is running.";
-
-  const data = await api("/query", {
-    method: "POST",
-    body: JSON.stringify({
-      path,
-      sql,
-      limit,
-    }),
-  });
-
-  state.result = data;
-  renderResultTable(data);
-  setStatus("Query completed", "success");
-  el.queryInfo.textContent = `Source: ${data.source.name} | SQL: ${data.sql}`;
-  setConnectionStatus(`Last query completed against ${data.source.resolved_path}`, "success");
-  persistPreferences();
+  el.learningCandidates.innerHTML = `<pre class="mono whitespace-pre-wrap">${escapeHtml(JSON.stringify(data.item || {}, null, 2))}</pre>`;
+  el.mappingStatus.textContent = "Preview selesai.";
 }
 
 function bindEvents() {
   el.loginForm.addEventListener("submit", (event) => {
-    loginDashboard(event).catch(showError);
-  });
-
-  el.learningTab.addEventListener("click", () => {
-    switchView("learning");
-    if (!state.learningIntents.length) {
-      loadLearningIntents().catch(showError);
-    }
-    loadLearningQueue().catch(showError);
-  });
-
-  el.explorerTab.addEventListener("click", () => {
-    switchView("explorer");
+    login(event).catch(showFatalError);
   });
 
   el.logoutButton.addEventListener("click", () => {
-    logoutDashboard().catch(showError);
+    clearToken();
+    showLogin("Anda sudah keluar.");
   });
 
-  el.refreshLearningButton.addEventListener("click", () => {
-    loadLearningQueue().catch(showError);
+  el.refreshButton.addEventListener("click", () => {
+    loadDashboard().catch(showFatalError);
   });
 
+  document.querySelectorAll(".nav-item").forEach((button) => {
+    button.addEventListener("click", () => {
+      switchView(button.dataset.view || "overview");
+    });
+  });
+
+  let customerTimer = null;
+  el.customerSearch.addEventListener("input", () => {
+    window.clearTimeout(customerTimer);
+    customerTimer = window.setTimeout(() => {
+      loadCustomers().catch(showFatalError);
+    }, 250);
+  });
+  el.customerStatusFilter.addEventListener("change", () => {
+    loadCustomers().catch(showFatalError);
+  });
+  el.billingStatusFilter.addEventListener("change", () => {
+    loadBilling().catch(showFatalError);
+  });
   el.learningStatusFilter.addEventListener("change", () => {
     state.selectedLearningId = null;
-    loadLearningQueue().catch(showError);
+    loadLearningQueue().catch(showFatalError);
   });
-
-  el.learningLimitInput.addEventListener("change", () => {
-    loadLearningQueue().catch(showError);
-  });
-
   el.learningList.addEventListener("click", (event) => {
     const button = event.target.closest("[data-learning-id]");
     if (!button) return;
@@ -768,95 +582,29 @@ function bindEvents() {
     renderLearningList();
     renderLearningDetail();
   });
-
   el.saveMappingButton.addEventListener("click", () => {
-    saveLearningMapping().catch(showError);
+    saveMapping().catch(showFatalError);
   });
-
-  el.suggestMappingButton.addEventListener("click", () => {
-    suggestLearningMapping().catch(showError);
-  });
-
   el.previewLearningButton.addEventListener("click", () => {
-    previewSelectedLearningItem().catch(showError);
-  });
-
-  el.sourceSelect.addEventListener("change", () => {
-    applySelectedSourceFromDropdown();
-    loadTables({ autoRunFirstTable: true }).catch(showError);
-  });
-
-  el.loadButton.addEventListener("click", () => {
-    setCurrentSource(el.pathInput.value.trim());
-    loadTables({ autoRunFirstTable: true }).catch(showError);
-  });
-
-  el.refreshButton.addEventListener("click", () => {
-    loadTables({ autoRunFirstTable: false }).catch(showError);
-  });
-
-  el.runButton.addEventListener("click", () => {
-    runQuery().catch(showError);
-  });
-
-  el.resetButton.addEventListener("click", () => {
-    el.sqlEditor.value = `SELECT name, type FROM sqlite_master WHERE type IN ("table", "view") AND name NOT LIKE "sqlite_%" ORDER BY name;`;
-    persistPreferences();
-  });
-
-  el.tableFilter.addEventListener("input", renderTables);
-
-  el.sqlEditor.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault();
-      runQuery().catch(showError);
-    }
-  });
-
-  document.querySelectorAll(".quick-query").forEach((button) => {
-    button.addEventListener("click", () => {
-      el.sqlEditor.value = button.dataset.query || "";
-      persistPreferences();
-      runQuery().catch(showError);
-    });
-  });
-
-  el.tablesList.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-table]");
-    if (!button) return;
-    const tableName = button.dataset.table;
-    if (!tableName) return;
-    loadTablePreview(tableName).catch(showError);
+    previewLearning().catch(showFatalError);
   });
 }
 
-function showError(error) {
+function showFatalError(error) {
   console.error(error);
-  setStatus("Error", "error");
-  setConnectionStatus(error.message || String(error), "error");
-  el.queryInfo.textContent = error.message || String(error);
+  setStatus(error.message || String(error), "error");
 }
 
 async function bootstrap() {
-  restorePreferences();
   bindEvents();
+  if (!state.token) {
+    showLogin("Silakan login untuk membuka dashboard.");
+    return;
+  }
   try {
-    const authenticated = await checkAuth();
-    if (!authenticated) {
-      return;
-    }
-    switchView("learning");
-    await loadLearningIntents();
-    await loadLearningQueue();
-    await loadSources();
-    if (currentPath()) {
-      el.pathInput.value = currentPath();
-      await loadTables({ autoRunFirstTable: true });
-    }
+    await loadDashboard();
   } catch (error) {
-    showError(error);
-  } finally {
-    persistPreferences();
+    showFatalError(error);
   }
 }
 

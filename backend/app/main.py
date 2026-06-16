@@ -42,11 +42,17 @@ def health_check() -> dict[str, str]:
 
 @app.get("/", include_in_schema=False)
 @app.get("/dashboard", include_in_schema=False)
-def dashboard_root() -> None:
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="Open /sqlexplorer directly to access the dashboard.",
-    )
+@app.get("/dashboard/", include_in_schema=False)
+@app.get("/client-dashboard", include_in_schema=False)
+@app.get("/client-dashboard/", include_in_schema=False)
+def dashboard_root() -> FileResponse:
+    index_file = FRONTEND_DIR / "index.html"
+    if not index_file.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dashboard frontend is not available.",
+        )
+    return FileResponse(index_file)
 
 
 @app.get("/sqlexplorer", include_in_schema=False)

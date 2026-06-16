@@ -1,3 +1,10 @@
+2026-06-16
+- Added a client-facing ISP dashboard with a simple left menu, login screen, Bearer/JWT-style token auth, and views for customer, package, billing, and learn process data.
+- Extended the SQLite client schema with email, password hash, office address, PIC name, phone, and active status while keeping existing multi-client/device behavior.
+- Added SQLite `customers` and `billing_records` tables plus a lightweight XLSX billing importer that can seed customer/package/billing data from `BILLING_SAMPLE_XLSX_PATH`.
+- Added `/api/v1/client-dashboard/*` endpoints for login, profile, summary, devices, customers, packages, billing, learning queue mapping, and agent preview.
+- Updated backend tests for client dashboard auth, token validation, sample billing import, and legacy migration safety.
+
 2026-06-15
 - Migrated SQLite chat, learning, stock, and catalog tables to carry explicit `client_id` and `device_id` scope keys for multi-client/multi-device operation.
 - Added schema backfill for existing SQLite data so messages, conversation state, logs, unprocessed questions, stock products, and seeded catalogs resolve to the correct client/device scope.

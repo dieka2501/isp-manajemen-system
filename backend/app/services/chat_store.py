@@ -4,6 +4,8 @@ import json
 import re
 import secrets
 import sqlite3
+import hashlib
+import hmac
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -11,6 +13,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from app.core.config import Settings
+from app.services.billing_import import excel_serial_to_date, load_billing_rows
 from app.services.intent_seed import (
     DEFAULT_COVERAGE_AREAS,
     DEFAULT_INTENT_MAPPINGS,
@@ -36,6 +39,78 @@ def _normalize_search_text(value: str) -> str:
     return " ".join(
         "".join(char.lower() if char.isalnum() else " " for char in value).split()
     )
+
+
+def _hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        120_000,
+    ).hex()
+    return f"pbkdf2_sha256$120000${salt}${digest}"
+
+
+def _verify_password(password: str, password_hash: str | None) -> bool:
+    if not password_hash:
+        return False
+    parts = password_hash.split("$")
+    if len(parts) != 4 or parts[0] != "pbkdf2_sha256":
+        return False
+    _, iterations_text, salt, expected = parts
+    try:
+        iterations = int(iterations_text)
+    except ValueError:
+        return False
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        iterations,
+    ).hex()
+    return hmac.compare_digest(digest, expected)
+
+
+def _safe_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _safe_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        cleaned = re.sub(r"[^0-9-]+", "", value)
+        if cleaned in {"", "-"}:
+            return None
+        try:
+            return int(cleaned)
+        except ValueError:
+            return None
+    return None
+
+
+def _customer_code_and_name(value: Any) -> tuple[str | None, str | None]:
+    text = _safe_text(value)
+    if not text:
+        return None, None
+    match = re.match(r"^([A-Za-z]{2,}\d{2,})(?:\s+(.+))?$", text)
+    if not match:
+        return None, text
+    code = match.group(1).upper()
+    name = (match.group(2) or code).strip()
+    return code, name
+
+
+def _package_code(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-") or "custom"
 
 
 @dataclass(frozen=True)
@@ -103,6 +178,12 @@ class SQLiteChatStore:
                     account_id INTEGER NOT NULL,
                     name TEXT NOT NULL,
                     external_ref TEXT,
+                    email TEXT,
+                    password_hash TEXT,
+                    office_address TEXT,
+                    pic_name TEXT,
+                    phone TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 1,
                     api_token TEXT NOT NULL UNIQUE,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
@@ -186,6 +267,56 @@ class SQLiteChatStore:
                     FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
                     FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
                     UNIQUE (client_id, device_id, package_code)
+                );
+
+                CREATE TABLE IF NOT EXISTS customers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER,
+                    package_id INTEGER,
+                    customer_code TEXT,
+                    name TEXT NOT NULL,
+                    phone TEXT,
+                    email TEXT,
+                    address TEXT,
+                    area TEXT,
+                    pppoe_username TEXT,
+                    installation_date TEXT,
+                    status TEXT NOT NULL DEFAULT 'active'
+                        CHECK(status IN ('active', 'inactive', 'suspended')),
+                    metadata TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE SET NULL,
+                    FOREIGN KEY (package_id) REFERENCES internet_packages (id) ON DELETE SET NULL,
+                    UNIQUE (client_id, customer_code)
+                );
+
+                CREATE TABLE IF NOT EXISTS billing_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    customer_id INTEGER NOT NULL,
+                    package_id INTEGER,
+                    invoice_number TEXT NOT NULL,
+                    billing_period TEXT,
+                    due_label TEXT,
+                    amount INTEGER NOT NULL DEFAULT 0,
+                    paid_amount INTEGER NOT NULL DEFAULT 0,
+                    arrears_amount INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'unpaid'
+                        CHECK(status IN ('paid', 'unpaid', 'partial', 'free', 'void')),
+                    payment_date TEXT,
+                    payment_account TEXT,
+                    payment_system TEXT,
+                    notes TEXT,
+                    raw_payload TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE CASCADE,
+                    FOREIGN KEY (package_id) REFERENCES internet_packages (id) ON DELETE SET NULL,
+                    UNIQUE (client_id, invoice_number)
                 );
 
                 CREATE TABLE IF NOT EXISTS coverage_areas (
@@ -408,6 +539,12 @@ class SQLiteChatStore:
                 CREATE INDEX IF NOT EXISTS idx_conversations_device_id ON conversations (device_id);
                 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages (conversation_id);
                 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages (created_at);
+                CREATE INDEX IF NOT EXISTS idx_customers_client_status
+                    ON customers (client_id, status);
+                CREATE INDEX IF NOT EXISTS idx_billing_records_client_status
+                    ON billing_records (client_id, status);
+                CREATE INDEX IF NOT EXISTS idx_billing_records_customer
+                    ON billing_records (customer_id);
                 CREATE INDEX IF NOT EXISTS idx_stock_products_client_id
                     ON stock_products (client_id);
                 CREATE INDEX IF NOT EXISTS idx_stock_products_name
@@ -439,6 +576,11 @@ class SQLiteChatStore:
             self._ensure_schema_migrations(conn)
             default_client_id, default_device_id = self._ensure_default_catalog_scope(conn)
             self._seed_default_catalog_for_scope(
+                conn,
+                client_id=default_client_id,
+                device_id=default_device_id,
+            )
+            self._seed_sample_billing_for_scope(
                 conn,
                 client_id=default_client_id,
                 device_id=default_device_id,
@@ -483,16 +625,28 @@ class SQLiteChatStore:
                     account_id,
                     name,
                     external_ref,
+                    email,
+                    password_hash,
+                    office_address,
+                    pic_name,
+                    phone,
+                    is_active,
                     api_token,
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     account["id"],
                     "Default Catalog Client",
                     DEFAULT_CATALOG_EXTERNAL_REF,
+                    self.settings.client_dashboard_seed_email,
+                    _hash_password(self.settings.client_dashboard_seed_password),
+                    self.settings.client_dashboard_seed_office_address,
+                    self.settings.client_dashboard_seed_pic_name,
+                    None,
+                    1,
                     secrets.token_urlsafe(24),
                     now,
                     now,
@@ -501,6 +655,8 @@ class SQLiteChatStore:
             client_id = int(cursor.lastrowid)
         else:
             client_id = int(client["id"])
+
+        self._ensure_default_client_profile(conn, client_id=client_id)
 
         device = conn.execute(
             """
@@ -537,6 +693,61 @@ class SQLiteChatStore:
             device_id = int(device["id"])
 
         return client_id, device_id
+
+    def _ensure_default_client_profile(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        client_id: int,
+    ) -> None:
+        now = _utc_now()
+        row = conn.execute(
+            """
+            SELECT email, password_hash, office_address, pic_name
+            FROM clients
+            WHERE id = ?
+            """,
+            (client_id,),
+        ).fetchone()
+        if not row:
+            return
+
+        email = row["email"] or self.settings.client_dashboard_seed_email
+        email_owner = conn.execute(
+            """
+            SELECT id
+            FROM clients
+            WHERE email = ? AND id != ?
+            """,
+            (email, client_id),
+        ).fetchone()
+        if email_owner:
+            email = row["email"]
+
+        conn.execute(
+            """
+            UPDATE clients
+            SET
+                email = ?,
+                password_hash = CASE
+                    WHEN password_hash IS NULL OR password_hash = '' THEN ?
+                    ELSE password_hash
+                END,
+                office_address = COALESCE(office_address, ?),
+                pic_name = COALESCE(pic_name, ?),
+                is_active = COALESCE(is_active, 1),
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                email,
+                _hash_password(self.settings.client_dashboard_seed_password),
+                self.settings.client_dashboard_seed_office_address,
+                self.settings.client_dashboard_seed_pic_name,
+                now,
+                client_id,
+            ),
+        )
 
     def _seed_intent_catalog(
         self,
@@ -766,8 +977,303 @@ class SQLiteChatStore:
         self._seed_coverage_areas(conn, client_id=client_id, device_id=device_id)
         self._seed_payment_methods(conn, client_id=client_id, device_id=device_id)
 
+    def _seed_sample_billing_for_scope(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        client_id: int,
+        device_id: int,
+    ) -> None:
+        if not self.settings.billing_sample_xlsx_path:
+            return
+        existing = conn.execute(
+            "SELECT 1 FROM customers WHERE client_id = ? LIMIT 1",
+            (client_id,),
+        ).fetchone()
+        if existing:
+            return
+
+        rows = load_billing_rows(self.settings.billing_sample_xlsx_path)
+        now = _utc_now()
+        for index, source in enumerate(rows, start=1):
+            customer_code, customer_name = _customer_code_and_name(source.get("Nama"))
+            if not customer_name:
+                continue
+            customer_code = customer_code or f"CUST-{index:03d}"
+            package_id = self._upsert_package_from_billing_row(
+                conn,
+                client_id=client_id,
+                device_id=device_id,
+                source=source,
+                now=now,
+            )
+            installation_date = excel_serial_to_date(source.get("Tanggal Pemasangan"))
+            metadata = {
+                "sales": _safe_text(source.get("Sales")),
+                "coordinates_user": _safe_text(source.get("Titik Koordinat User")),
+                "home_photo": _safe_text(source.get("Foto Rumah")),
+                "odp": _safe_text(source.get("ODP")),
+                "coordinates_odp": _safe_text(source.get("Titik Koordinat ODP")),
+                "olt": _safe_text(source.get("OLT")),
+                "slot_port_olt": _safe_text(source.get("SLOT/PORT OLT")),
+                "router": _safe_text(source.get("Router Yang Digunakan")),
+                "serial_number": _safe_text(source.get("Serial Number")),
+                "initial_signal": source.get("Redaman Awal"),
+                "technician": _safe_text(source.get("Teknisi Pemasangan")),
+            }
+            conn.execute(
+                """
+                INSERT INTO customers (
+                    client_id,
+                    device_id,
+                    package_id,
+                    customer_code,
+                    name,
+                    phone,
+                    address,
+                    pppoe_username,
+                    installation_date,
+                    status,
+                    metadata,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+                ON CONFLICT(client_id, customer_code) DO UPDATE SET
+                    device_id = excluded.device_id,
+                    package_id = excluded.package_id,
+                    name = excluded.name,
+                    phone = excluded.phone,
+                    address = excluded.address,
+                    pppoe_username = excluded.pppoe_username,
+                    installation_date = excluded.installation_date,
+                    metadata = excluded.metadata,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    client_id,
+                    device_id,
+                    package_id,
+                    customer_code,
+                    customer_name,
+                    _safe_text(source.get("No HP")),
+                    _safe_text(source.get("Alamat Lengkap")),
+                    _safe_text(source.get("PPPOE")),
+                    installation_date,
+                    json.dumps(metadata, ensure_ascii=True),
+                    now,
+                    now,
+                ),
+            )
+            customer = conn.execute(
+                """
+                SELECT id
+                FROM customers
+                WHERE client_id = ? AND customer_code = ?
+                """,
+                (client_id, customer_code),
+            ).fetchone()
+            if customer:
+                self._upsert_billing_from_billing_row(
+                    conn,
+                    client_id=client_id,
+                    customer_id=int(customer["id"]),
+                    package_id=package_id,
+                    customer_code=customer_code,
+                    source=source,
+                    now=now,
+                )
+
+    def _upsert_package_from_billing_row(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        client_id: int,
+        device_id: int,
+        source: dict[str, Any],
+        now: str,
+    ) -> int | None:
+        package_label = _safe_text(source.get("Paket"))
+        if not package_label:
+            return None
+        package_code = _package_code(package_label)
+        speed_match = re.search(r"(\d+)", package_label)
+        speed_mbps = int(speed_match.group(1)) if speed_match else 0
+        monthly_price = _safe_int(source.get("Pembayran")) or 0
+        conn.execute(
+            """
+            INSERT INTO internet_packages (
+                client_id,
+                device_id,
+                package_code,
+                package_name,
+                speed_mbps,
+                monthly_price,
+                installation_fee,
+                areas,
+                benefits,
+                is_active,
+                sort_order,
+                notes,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 0, '[]', '[]', 1, ?, ?, ?, ?)
+            ON CONFLICT(client_id, device_id, package_code) DO UPDATE SET
+                package_name = excluded.package_name,
+                speed_mbps = excluded.speed_mbps,
+                monthly_price = CASE
+                    WHEN excluded.monthly_price > 0 THEN excluded.monthly_price
+                    ELSE internet_packages.monthly_price
+                END,
+                updated_at = excluded.updated_at
+            """,
+            (
+                client_id,
+                device_id,
+                package_code,
+                package_label,
+                speed_mbps,
+                monthly_price,
+                10 + speed_mbps,
+                "Seeded from billing workbook.",
+                now,
+                now,
+            ),
+        )
+        row = conn.execute(
+            """
+            SELECT id
+            FROM internet_packages
+            WHERE client_id = ? AND device_id = ? AND package_code = ?
+            """,
+            (client_id, device_id, package_code),
+        ).fetchone()
+        return int(row["id"]) if row else None
+
+    def _upsert_billing_from_billing_row(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        client_id: int,
+        customer_id: int,
+        package_id: int | None,
+        customer_code: str,
+        source: dict[str, Any],
+        now: str,
+    ) -> None:
+        amount = _safe_int(source.get("Pembayran")) or 0
+        paid_amount = _safe_int(source.get("Bayar")) or 0
+        arrears_amount = _safe_int(source.get("Tunggakan (bila ada)")) or 0
+        payment_date = excel_serial_to_date(source.get("Tanggal"))
+        billing_period = payment_date[:7] if payment_date else "sample"
+        status = self._normalize_billing_status(
+            source.get("Status"),
+            amount=amount,
+            paid_amount=paid_amount,
+            package_value=source.get("Pembayran"),
+        )
+        invoice_number = f"{billing_period}-{customer_code}"
+        notes = None
+        if amount == 0 and _safe_text(source.get("Pembayran")):
+            notes = f"Pembayaran asli: {_safe_text(source.get('Pembayran'))}"
+        if not arrears_amount and status in {"unpaid", "partial"} and amount > paid_amount:
+            arrears_amount = amount - paid_amount
+
+        conn.execute(
+            """
+            INSERT INTO billing_records (
+                client_id,
+                customer_id,
+                package_id,
+                invoice_number,
+                billing_period,
+                due_label,
+                amount,
+                paid_amount,
+                arrears_amount,
+                status,
+                payment_date,
+                payment_account,
+                payment_system,
+                notes,
+                raw_payload,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(client_id, invoice_number) DO UPDATE SET
+                customer_id = excluded.customer_id,
+                package_id = excluded.package_id,
+                billing_period = excluded.billing_period,
+                due_label = excluded.due_label,
+                amount = excluded.amount,
+                paid_amount = excluded.paid_amount,
+                arrears_amount = excluded.arrears_amount,
+                status = excluded.status,
+                payment_date = excluded.payment_date,
+                payment_account = excluded.payment_account,
+                payment_system = excluded.payment_system,
+                notes = excluded.notes,
+                raw_payload = excluded.raw_payload,
+                updated_at = excluded.updated_at
+            """,
+            (
+                client_id,
+                customer_id,
+                package_id,
+                invoice_number,
+                billing_period,
+                _safe_text(source.get("Japo")),
+                amount,
+                paid_amount,
+                arrears_amount,
+                status,
+                payment_date,
+                _safe_text(source.get("Rekening")),
+                _safe_text(source.get("Sistem Pembayaran")),
+                notes,
+                json.dumps(source, ensure_ascii=True, default=str),
+                now,
+                now,
+            ),
+        )
+
+    def _normalize_billing_status(
+        self,
+        value: Any,
+        *,
+        amount: int,
+        paid_amount: int,
+        package_value: Any,
+    ) -> str:
+        text = str(value or "").strip().lower()
+        package_text = str(package_value or "").strip().lower()
+        if package_text == "free" or text == "free":
+            return "free"
+        if text in {"lunas", "paid"}:
+            return "paid"
+        if paid_amount and amount and paid_amount < amount:
+            return "partial"
+        if paid_amount and (not amount or paid_amount >= amount):
+            return "paid"
+        return "unpaid"
+
     def _ensure_schema_migrations(self, conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA foreign_keys = OFF")
+        self._ensure_column(conn, "clients", "email", "TEXT")
+        self._ensure_column(conn, "clients", "password_hash", "TEXT")
+        self._ensure_column(conn, "clients", "office_address", "TEXT")
+        self._ensure_column(conn, "clients", "pic_name", "TEXT")
+        self._ensure_column(conn, "clients", "phone", "TEXT")
+        self._ensure_column(conn, "clients", "is_active", "INTEGER NOT NULL DEFAULT 1")
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_clients_email
+                ON clients (email)
+                WHERE email IS NOT NULL
+            """
+        )
         scoped_tables = (
             "messages",
             "stock_products",
@@ -856,6 +1362,8 @@ class SQLiteChatStore:
             parent_table = str(row["table"] or "")
             if parent_table.endswith("__legacy_scope_migration"):
                 return True
+            if table_name in {"conversation_states", "unprocessed_questions"} and parent_table == "intents":
+                return True
         return False
 
     def _rebuild_table_without_legacy_uniques(
@@ -907,8 +1415,10 @@ class SQLiteChatStore:
 
         column_sql = ", ".join(column_names)
         conn.execute(f"DROP TABLE IF EXISTS {legacy_table}")
+        conn.execute("PRAGMA legacy_alter_table = ON")
         conn.execute(f"ALTER TABLE {table_name} RENAME TO {legacy_table}")
         conn.execute(f"CREATE TABLE {table_name} ({', '.join(column_defs)})")
+        conn.execute("PRAGMA legacy_alter_table = OFF")
         conn.execute(
             f"""
             INSERT OR IGNORE INTO {table_name} ({column_sql})
@@ -1007,6 +1517,10 @@ class SQLiteChatStore:
             """
             CREATE INDEX IF NOT EXISTS idx_messages_scope
                 ON messages (client_id, device_id);
+            CREATE INDEX IF NOT EXISTS idx_customers_scope
+                ON customers (client_id, device_id, status);
+            CREATE INDEX IF NOT EXISTS idx_billing_records_scope
+                ON billing_records (client_id, status, billing_period);
             CREATE INDEX IF NOT EXISTS idx_stock_products_scope
                 ON stock_products (client_id, device_id);
             CREATE INDEX IF NOT EXISTS idx_internet_packages_scope_active_sort
@@ -1165,6 +1679,11 @@ class SQLiteChatStore:
         account_slug: str,
         name: str,
         external_ref: str | None = None,
+        email: str | None = None,
+        password: str | None = None,
+        office_address: str | None = None,
+        pic_name: str | None = None,
+        phone: str | None = None,
     ) -> dict[str, Any]:
         now = _utc_now()
         api_token = secrets.token_urlsafe(24)
@@ -1175,6 +1694,14 @@ class SQLiteChatStore:
             ).fetchone()
             if not account:
                 raise ValueError(f"Account `{account_slug}` was not found.")
+            normalized_email = email.strip().lower() if email else None
+            if normalized_email:
+                existing_email = conn.execute(
+                    "SELECT id FROM clients WHERE email = ?",
+                    (normalized_email,),
+                ).fetchone()
+                if existing_email:
+                    raise ValueError(f"Client email `{normalized_email}` already exists.")
 
             cursor = conn.execute(
                 """
@@ -1182,16 +1709,28 @@ class SQLiteChatStore:
                     account_id,
                     name,
                     external_ref,
+                    email,
+                    password_hash,
+                    office_address,
+                    pic_name,
+                    phone,
+                    is_active,
                     api_token,
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     account["id"],
                     name.strip(),
                     external_ref.strip() if external_ref else None,
+                    normalized_email,
+                    _hash_password(password) if password else None,
+                    office_address.strip() if office_address else None,
+                    pic_name.strip() if pic_name else None,
+                    phone.strip() if phone else None,
+                    1,
                     api_token,
                     now,
                     now,
@@ -1207,6 +1746,11 @@ class SQLiteChatStore:
                     a.slug AS account_slug,
                     c.name,
                     c.external_ref,
+                    c.email,
+                    c.office_address,
+                    c.pic_name,
+                    c.phone,
+                    c.is_active,
                     c.api_token,
                     c.created_at,
                     c.updated_at
@@ -1227,6 +1771,11 @@ class SQLiteChatStore:
                 a.slug AS account_slug,
                 c.name,
                 c.external_ref,
+                c.email,
+                c.office_address,
+                c.pic_name,
+                c.phone,
+                c.is_active,
                 c.api_token,
                 c.created_at,
                 c.updated_at,
@@ -1246,6 +1795,320 @@ class SQLiteChatStore:
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
+
+    def authenticate_client(
+        self,
+        *,
+        identifier: str,
+        password: str,
+    ) -> dict[str, Any] | None:
+        normalized_identifier = identifier.strip().lower()
+        if not normalized_identifier or not password:
+            return None
+
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, password_hash, is_active
+                FROM clients
+                WHERE LOWER(email) = ?
+                   OR api_token = ?
+                   OR LOWER(external_ref) = ?
+                   OR LOWER(name) = ?
+                ORDER BY id
+                LIMIT 1
+                """,
+                (
+                    normalized_identifier,
+                    identifier.strip(),
+                    normalized_identifier,
+                    normalized_identifier,
+                ),
+            ).fetchone()
+            if (
+                not row
+                or not int(row["is_active"] or 0)
+                or not _verify_password(password, row["password_hash"])
+            ):
+                return None
+            return self._get_client_profile(conn, int(row["id"]))
+
+    def get_client_profile(self, client_id: int) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            return self._get_client_profile(conn, client_id)
+
+    def list_client_devices(self, client_id: int) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    d.id,
+                    d.client_id,
+                    d.device_identifier,
+                    d.device_name,
+                    d.created_at,
+                    d.updated_at,
+                    COUNT(DISTINCT conv.id) AS conversation_count,
+                    COUNT(DISTINCT cu.id) AS customer_count
+                FROM devices d
+                LEFT JOIN conversations conv ON conv.device_id = d.id
+                LEFT JOIN customers cu ON cu.device_id = d.id
+                WHERE d.client_id = ?
+                GROUP BY d.id
+                ORDER BY d.created_at ASC, d.id ASC
+                """,
+                (client_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_client_packages(
+        self,
+        *,
+        client_id: int,
+        active_only: bool = True,
+    ) -> list[dict[str, Any]]:
+        filters = ["ip.client_id = ?"]
+        params: list[Any] = [client_id]
+        if active_only:
+            filters.append("ip.is_active = 1")
+        where_clause = " AND ".join(filters)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    ip.id,
+                    ip.client_id,
+                    ip.device_id,
+                    d.device_identifier,
+                    d.device_name,
+                    ip.package_code,
+                    ip.package_name,
+                    ip.speed_mbps,
+                    ip.monthly_price,
+                    ip.installation_fee,
+                    ip.installation_fee_label,
+                    ip.areas,
+                    ip.benefits,
+                    ip.is_active,
+                    ip.sort_order,
+                    ip.notes,
+                    ip.created_at,
+                    ip.updated_at,
+                    COUNT(cu.id) AS customer_count
+                FROM internet_packages ip
+                LEFT JOIN devices d ON d.id = ip.device_id
+                LEFT JOIN customers cu ON cu.package_id = ip.id
+                WHERE {where_clause}
+                GROUP BY ip.id
+                ORDER BY ip.sort_order, ip.speed_mbps, ip.package_name
+                """,
+                tuple(params),
+            ).fetchall()
+        return [self._decode_internet_package_row(dict(row)) for row in rows]
+
+    def list_customers(
+        self,
+        *,
+        client_id: int,
+        query: str | None = None,
+        status_filter: str = "all",
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 500))
+        valid_statuses = {"active", "inactive", "suspended", "all"}
+        if status_filter not in valid_statuses:
+            raise ValueError("Invalid customer status filter.")
+
+        filters = ["cu.client_id = ?"]
+        params: list[Any] = [client_id]
+        if status_filter != "all":
+            filters.append("cu.status = ?")
+            params.append(status_filter)
+        if query and query.strip():
+            search = f"%{query.strip().lower()}%"
+            filters.append(
+                """
+                (
+                    LOWER(cu.name) LIKE ?
+                    OR LOWER(COALESCE(cu.customer_code, '')) LIKE ?
+                    OR LOWER(COALESCE(cu.phone, '')) LIKE ?
+                    OR LOWER(COALESCE(cu.address, '')) LIKE ?
+                    OR LOWER(COALESCE(cu.pppoe_username, '')) LIKE ?
+                )
+                """
+            )
+            params.extend([search, search, search, search, search])
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    cu.id,
+                    cu.client_id,
+                    cu.device_id,
+                    d.device_identifier,
+                    d.device_name,
+                    cu.package_id,
+                    ip.package_code,
+                    ip.package_name,
+                    ip.speed_mbps,
+                    ip.monthly_price,
+                    cu.customer_code,
+                    cu.name,
+                    cu.phone,
+                    cu.email,
+                    cu.address,
+                    cu.area,
+                    cu.pppoe_username,
+                    cu.installation_date,
+                    cu.status,
+                    cu.metadata,
+                    cu.created_at,
+                    cu.updated_at,
+                    COALESCE(SUM(br.amount), 0) AS total_billed,
+                    COALESCE(SUM(br.paid_amount), 0) AS total_paid,
+                    COALESCE(SUM(br.arrears_amount), 0) AS total_arrears,
+                    MAX(br.payment_date) AS last_payment_date
+                FROM customers cu
+                LEFT JOIN devices d ON d.id = cu.device_id
+                LEFT JOIN internet_packages ip ON ip.id = cu.package_id
+                LEFT JOIN billing_records br ON br.customer_id = cu.id
+                WHERE {" AND ".join(filters)}
+                GROUP BY cu.id
+                ORDER BY cu.name COLLATE NOCASE
+                LIMIT ?
+                """,
+                (*params, safe_limit),
+            ).fetchall()
+        return [self._decode_customer_row(dict(row)) for row in rows]
+
+    def list_billing_records(
+        self,
+        *,
+        client_id: int,
+        status_filter: str = "all",
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 500))
+        valid_statuses = {"paid", "unpaid", "partial", "free", "void", "all"}
+        if status_filter not in valid_statuses:
+            raise ValueError("Invalid billing status filter.")
+
+        filters = ["br.client_id = ?"]
+        params: list[Any] = [client_id]
+        if status_filter != "all":
+            filters.append("br.status = ?")
+            params.append(status_filter)
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    br.id,
+                    br.client_id,
+                    br.customer_id,
+                    cu.customer_code,
+                    cu.name AS customer_name,
+                    cu.phone AS customer_phone,
+                    cu.address AS customer_address,
+                    br.package_id,
+                    ip.package_code,
+                    ip.package_name,
+                    ip.speed_mbps,
+                    br.invoice_number,
+                    br.billing_period,
+                    br.due_label,
+                    br.amount,
+                    br.paid_amount,
+                    br.arrears_amount,
+                    br.status,
+                    br.payment_date,
+                    br.payment_account,
+                    br.payment_system,
+                    br.notes,
+                    br.raw_payload,
+                    br.created_at,
+                    br.updated_at
+                FROM billing_records br
+                JOIN customers cu ON cu.id = br.customer_id
+                LEFT JOIN internet_packages ip ON ip.id = br.package_id
+                WHERE {" AND ".join(filters)}
+                ORDER BY COALESCE(br.payment_date, br.updated_at) DESC, br.id DESC
+                LIMIT ?
+                """,
+                (*params, safe_limit),
+            ).fetchall()
+        return [self._decode_billing_row(dict(row)) for row in rows]
+
+    def get_client_dashboard_summary(self, client_id: int) -> dict[str, Any]:
+        with self._connect() as conn:
+            customer_counts = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_customers,
+                    SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active_customers
+                FROM customers
+                WHERE client_id = ?
+                """,
+                (client_id,),
+            ).fetchone()
+            package_count = conn.execute(
+                """
+                SELECT COUNT(*) AS total_packages
+                FROM internet_packages
+                WHERE client_id = ? AND is_active = 1
+                """,
+                (client_id,),
+            ).fetchone()
+            billing = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_billing,
+                    SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS paid_count,
+                    SUM(CASE WHEN status IN ('unpaid', 'partial') THEN 1 ELSE 0 END) AS unpaid_count,
+                    COALESCE(SUM(amount), 0) AS total_amount,
+                    COALESCE(SUM(paid_amount), 0) AS paid_amount,
+                    COALESCE(SUM(arrears_amount), 0) AS arrears_amount
+                FROM billing_records
+                WHERE client_id = ?
+                """,
+                (client_id,),
+            ).fetchone()
+            recent_billing = conn.execute(
+                """
+                SELECT
+                    br.id,
+                    br.invoice_number,
+                    br.billing_period,
+                    br.amount,
+                    br.paid_amount,
+                    br.arrears_amount,
+                    br.status,
+                    br.payment_date,
+                    cu.name AS customer_name,
+                    ip.package_name
+                FROM billing_records br
+                JOIN customers cu ON cu.id = br.customer_id
+                LEFT JOIN internet_packages ip ON ip.id = br.package_id
+                WHERE br.client_id = ?
+                ORDER BY COALESCE(br.payment_date, br.updated_at) DESC, br.id DESC
+                LIMIT 5
+                """,
+                (client_id,),
+            ).fetchall()
+
+        return {
+            "total_customers": int(customer_counts["total_customers"] or 0),
+            "active_customers": int(customer_counts["active_customers"] or 0),
+            "total_packages": int(package_count["total_packages"] or 0),
+            "total_billing": int(billing["total_billing"] or 0),
+            "paid_count": int(billing["paid_count"] or 0),
+            "unpaid_count": int(billing["unpaid_count"] or 0),
+            "total_amount": int(billing["total_amount"] or 0),
+            "paid_amount": int(billing["paid_amount"] or 0),
+            "arrears_amount": int(billing["arrears_amount"] or 0),
+            "recent_billing": [dict(row) for row in recent_billing],
+        }
 
     def register_device(
         self,
@@ -2008,17 +2871,26 @@ class SQLiteChatStore:
         *,
         status_filter: str = "pending",
         limit: int = 50,
+        client_id: int | None = None,
+        device_id: int | None = None,
     ) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 200))
         valid_statuses = {"pending", "mapped", "ignored", "all"}
         if status_filter not in valid_statuses:
             raise ValueError("Invalid status filter.")
 
-        where_clause = ""
+        filters = []
         params: list[Any] = []
         if status_filter != "all":
-            where_clause = "WHERE uq.status = ?"
+            filters.append("uq.status = ?")
             params.append(status_filter)
+        if client_id is not None:
+            filters.append("uq.client_id = ?")
+            params.append(client_id)
+        if device_id is not None:
+            filters.append("uq.device_id = ?")
+            params.append(device_id)
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
 
         with self._connect() as conn:
             rows = conn.execute(
@@ -2650,6 +3522,41 @@ class SQLiteChatStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def _get_client_profile(
+        self,
+        conn: sqlite3.Connection,
+        client_id: int,
+    ) -> dict[str, Any] | None:
+        row = conn.execute(
+            """
+            SELECT
+                c.id,
+                c.account_id,
+                a.name AS account_name,
+                a.slug AS account_slug,
+                c.name,
+                c.external_ref,
+                c.email,
+                c.office_address,
+                c.pic_name,
+                c.phone,
+                c.is_active,
+                c.api_token,
+                c.created_at,
+                c.updated_at,
+                COUNT(DISTINCT d.id) AS device_count,
+                COUNT(DISTINCT cu.id) AS customer_count
+            FROM clients c
+            JOIN accounts a ON a.id = c.account_id
+            LEFT JOIN devices d ON d.client_id = c.id
+            LEFT JOIN customers cu ON cu.client_id = c.id
+            WHERE c.id = ?
+            GROUP BY c.id
+            """,
+            (client_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path)
@@ -2679,6 +3586,14 @@ class SQLiteChatStore:
     def _decode_internet_package_row(self, row: dict[str, Any]) -> dict[str, Any]:
         row["areas"] = self._decode_json_value(row.get("areas"), [])
         row["benefits"] = self._decode_json_value(row.get("benefits"), [])
+        return row
+
+    def _decode_customer_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        row["metadata"] = self._decode_json_value(row.get("metadata"), {})
+        return row
+
+    def _decode_billing_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        row["raw_payload"] = self._decode_json_value(row.get("raw_payload"), {})
         return row
 
     def _resolve_client(
