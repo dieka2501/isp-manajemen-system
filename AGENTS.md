@@ -17,10 +17,10 @@
 - Jika ada masih ada koneksi ke API gsheet, segera diganti
 - Jika request feature baru, jangan sampai feature lama hilang atau rusak.
 - Jika feature lama terpaksa harus dihapus, diganti, atau berubah perilaku, WAJIB konfirmasi ke user terlebih dahulu sebelum implementasi.
+- Jika fungsi yang diminta ternyata sudah ada namun kurang terlihat/kurang sesuai, verifikasi dulu ke user apakah pekerjaan dilanjutkan, diubah, atau cukup memperbaiki fungsi yang ada sebelum menambah fungsi baru.
 
 # Requirment
 - 1 client bisa mempunyai beberapa device
 - Semua client mempunyai data keyword, intent, dan messagenya sendiri-sendiri
-
 
 

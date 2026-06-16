@@ -97,7 +97,7 @@ OPENAI_MODEL=gpt-4o-mini
 LLM_RESPONSE_ENABLED=true
 CONVERSATION_STATE_TTL_HOURS=48
 CLIENT_DASHBOARD_JWT_SECRET=
-CLIENT_DASHBOARD_TOKEN_HOURS=12
+CLIENT_DASHBOARD_TOKEN_HOURS=2
 CLIENT_DASHBOARD_SEED_EMAIL=admin@isp.local
 CLIENT_DASHBOARD_SEED_PASSWORD=password
 BILLING_SAMPLE_XLSX_PATH=contoh-list-billing.xlsx
@@ -203,6 +203,9 @@ Semua endpoint dashboard selain login memakai header:
 ```text
 Authorization: Bearer <access_token>
 ```
+
+Session dashboard client berlaku 2 jam secara default melalui
+`CLIENT_DASHBOARD_TOKEN_HOURS=2`.
 
 Jika `BILLING_SAMPLE_XLSX_PATH` menunjuk file `.xlsx`, database baru akan
 mengimpor contoh billing menjadi `customers`, `internet_packages`, dan

@@ -71,7 +71,15 @@ class ClientDashboardTokenService:
             expires_at = int(payload.get("exp", 0))
         except (TypeError, ValueError):
             return None
-        if expires_at < int(time.time()):
+        now = int(time.time())
+        if expires_at <= now:
+            return None
+        try:
+            issued_at = int(payload.get("iat", 0))
+        except (TypeError, ValueError):
+            return None
+        max_session_age = self.settings.client_dashboard_token_hours * 3600
+        if max_session_age > 0 and issued_at + max_session_age <= now:
             return None
         return payload
 
