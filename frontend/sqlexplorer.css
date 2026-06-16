@@ -331,6 +331,38 @@ body {
   background: rgba(255, 255, 255, 0.03);
 }
 
+.write-summary {
+  display: flex;
+  width: min(100%, 44rem);
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  padding: 1rem;
+}
+
+.write-summary > div {
+  min-width: 12rem;
+  border-radius: 16px;
+  border: 1px solid rgba(16, 185, 129, 0.16);
+  background: rgba(16, 185, 129, 0.08);
+  padding: 0.9rem 1rem;
+}
+
+.write-summary span {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(167, 243, 208, 0.74);
+}
+
+.write-summary strong {
+  display: block;
+  margin-top: 0.4rem;
+  color: #ecfdf5;
+  font-size: 1.05rem;
+}
+
 .mono {
   font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
 }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,7 @@ from app.api.sqlite_explorer import _parse_multipart_form
 from app.services.billing_import import load_billing_rows_from_bytes
 from app.services.chat_store import SQLiteChatStore
 from app.services.client_dashboard_auth import ClientDashboardTokenService
+from app.services.sqlite_explorer import SQLiteExplorerService
 
 
 class ClientDashboardTests(unittest.TestCase):
@@ -136,6 +138,47 @@ class ClientDashboardTests(unittest.TestCase):
         self.assertEqual(fields["client_id"], "7")
         self.assertEqual(files["billing_file"].filename, "billing.xlsx")
         self.assertEqual(files["billing_file"].data, b"fake-xlsx-bytes")
+
+    def test_sqlite_explorer_allows_insert_and_update_statements(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "ops.sqlite3"
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    "CREATE TABLE notes (id INTEGER PRIMARY KEY, name TEXT NOT NULL, status TEXT NOT NULL)"
+                )
+
+            service = SQLiteExplorerService(Settings(chat_database_path=str(db_path)))
+            insert_result = service.run_query(
+                str(db_path),
+                "INSERT INTO notes (name, status) VALUES ('Customer A', 'new');",
+            )
+            update_result = service.run_query(
+                str(db_path),
+                "UPDATE notes SET status = 'done' WHERE name = 'Customer A';",
+            )
+            select_result = service.run_query(
+                str(db_path),
+                "SELECT name, status FROM notes;",
+                limit=10,
+            )
+
+        self.assertEqual(insert_result["operation"], "insert")
+        self.assertEqual(insert_result["rows_affected"], 1)
+        self.assertEqual(update_result["operation"], "update")
+        self.assertEqual(update_result["rows_affected"], 1)
+        self.assertEqual(select_result["rows"], [{"name": "Customer A", "status": "done"}])
+
+    def test_sqlite_explorer_rejects_non_insert_update_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "ops.sqlite3"
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    "CREATE TABLE notes (id INTEGER PRIMARY KEY, name TEXT NOT NULL)"
+                )
+
+            service = SQLiteExplorerService(Settings(chat_database_path=str(db_path)))
+            with self.assertRaisesRegex(ValueError, "Only SELECT, PRAGMA, INSERT, and UPDATE"):
+                service.run_query(str(db_path), "DELETE FROM notes;")
 
 
 def _write_minimal_billing_xlsx(path: Path) -> None:
