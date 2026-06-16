@@ -6,7 +6,7 @@
     <title>ISP Operations Dashboard</title>
     <meta
       name="description"
-      content="Explore SQLite files, inspect tables, and run read-only queries from a dashboard."
+      content="Explore SQLite files, inspect tables, and run controlled SQL from a dashboard."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -15,7 +15,7 @@
       rel="stylesheet"
     />
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="/sqlexplorer-assets/sqlexplorer.css?v=learning-tabs-20260616" />
+    <link rel="stylesheet" href="/sqlexplorer-assets/sqlexplorer.css?v=write-sql-20260616" />
   </head>
   <body>
     <div id="authGate" class="auth-gate hidden">
@@ -206,7 +206,7 @@
         </div>
         <div class="mt-4 grid gap-3 text-xs text-slate-400 md:grid-cols-3">
           <div class="info-chip">Configured sources are loaded from backend config.</div>
-          <div class="info-chip">Only read-only SQL is allowed from the editor.</div>
+          <div class="info-chip">The editor supports SELECT, PRAGMA, INSERT, and UPDATE statements.</div>
           <div class="info-chip">Click a table to auto-fill a preview query.</div>
         </div>
       </section>
@@ -265,9 +265,9 @@
           <div class="glass-panel p-5 min-w-0">
             <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div class="space-y-2">
-                <h2 class="text-lg font-semibold text-white">Query editor</h2>
+                <h2 class="text-lg font-semibold text-white">SQL editor</h2>
                 <p class="text-sm text-slate-400">
-                  Run a single read-only query. Results appear immediately below the editor.
+                  Run one SQL statement at a time. Results or write summaries appear below.
                 </p>
               </div>
               <div class="flex flex-wrap gap-2">
@@ -299,7 +299,7 @@
                   <span class="section-label">Row limit</span>
                   <input id="limitInput" class="control-input" type="number" min="1" max="1000" value="250" />
                 </label>
-                <button id="runButton" class="action-button action-primary w-full">Run query</button>
+                <button id="runButton" class="action-button action-primary w-full">Run SQL</button>
                 <button id="resetButton" class="action-button action-secondary w-full">Reset editor</button>
               </div>
             </div>
@@ -337,6 +337,6 @@
       </div>
     </div>
 
-    <script src="/sqlexplorer-assets/sqlexplorer.js?v=openai-learning-20260616" defer></script>
+    <script src="/sqlexplorer-assets/sqlexplorer.js?v=write-sql-20260616" defer></script>
   </body>
 </html>

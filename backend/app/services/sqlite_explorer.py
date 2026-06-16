@@ -48,7 +48,7 @@ class SQLiteExplorerService:
         return self.list_sources()[0]
 
     def list_tables(self, db_path: str) -> list[dict[str, Any]]:
-        with self._connect(db_path) as conn:
+        with self._connect(db_path, readonly=True) as conn:
             rows = conn.execute(
                 """
                 SELECT name, type
@@ -78,11 +78,18 @@ class SQLiteExplorerService:
         query = sql.strip().rstrip(";").strip()
         if not query:
             raise ValueError("Query cannot be empty.")
-        if query.lower().startswith(("insert", "update", "delete", "drop", "alter", "create", "replace", "vacuum", "attach", "detach")):
-            raise ValueError("Only read-only queries are allowed.")
 
+        operation = self._statement_operation(query)
+        if operation in {"insert", "update"}:
+            return self._run_write_statement(db_path, query, operation, limit=limit)
+        if operation not in {"select", "pragma", "with", "explain"}:
+            raise ValueError("Only SELECT, PRAGMA, INSERT, and UPDATE statements are allowed.")
+
+        return self._run_read_query(db_path, query, limit=limit)
+
+    def _run_read_query(self, db_path: str, query: str, limit: int) -> dict[str, Any]:
         try:
-            with self._connect(db_path) as conn:
+            with self._connect(db_path, readonly=True) as conn:
                 cursor = conn.execute(query)
                 columns = [column[0] for column in cursor.description or []]
                 rows = cursor.fetchmany(limit)
@@ -98,6 +105,45 @@ class SQLiteExplorerService:
             "truncated": truncated,
             "limit": limit,
             "sql": query,
+            "operation": "read",
+            "rows_affected": None,
+            "last_insert_rowid": None,
+        }
+
+    def _run_write_statement(
+        self,
+        db_path: str,
+        query: str,
+        operation: str,
+        limit: int,
+    ) -> dict[str, Any]:
+        try:
+            with self._connect(db_path, readonly=False) as conn:
+                try:
+                    cursor = conn.execute(query)
+                    columns = [column[0] for column in cursor.description or []]
+                    rows = cursor.fetchmany(limit) if columns else []
+                    result_rows = [self._stringify_row(row, columns) for row in rows]
+                    truncated = cursor.fetchone() is not None if columns else False
+                    rows_affected = cursor.rowcount if cursor.rowcount >= 0 else 0
+                    last_insert_rowid = cursor.lastrowid if cursor.lastrowid else None
+                    conn.commit()
+                except sqlite3.Error:
+                    conn.rollback()
+                    raise
+        except sqlite3.Error as exc:
+            raise ValueError(self._sqlite_error_message(exc)) from exc
+
+        return {
+            "columns": columns,
+            "rows": result_rows,
+            "row_count": len(result_rows),
+            "truncated": truncated,
+            "limit": limit,
+            "sql": query,
+            "operation": operation,
+            "rows_affected": rows_affected,
+            "last_insert_rowid": last_insert_rowid,
         }
 
     def preview_table(self, db_path: str, table_name: str, limit: int = 100) -> dict[str, Any]:
@@ -157,13 +203,38 @@ class SQLiteExplorerService:
             return candidate.resolve()
         return (BASE_DIR / candidate).resolve()
 
-    def _connect(self, db_path: str) -> sqlite3.Connection:
+    def _connect(self, db_path: str, *, readonly: bool) -> sqlite3.Connection:
         resolved = self._resolve_path(db_path)
         if not resolved.exists():
             raise FileNotFoundError(f"SQLite file not found: {resolved}")
-        conn = sqlite3.connect(f"file:{quote(str(resolved))}?mode=ro", uri=True)
+        mode = "ro" if readonly else "rw"
+        conn = sqlite3.connect(f"file:{quote(str(resolved))}?mode={mode}", uri=True)
         conn.row_factory = sqlite3.Row
         return conn
+
+    def _statement_operation(self, query: str) -> str:
+        statement = self._strip_leading_comments(query).lstrip()
+        if not statement:
+            return ""
+        return statement.split(None, 1)[0].lower()
+
+    def _strip_leading_comments(self, query: str) -> str:
+        statement = query
+        while True:
+            stripped = statement.lstrip()
+            if stripped.startswith("--"):
+                newline_index = stripped.find("\n")
+                if newline_index == -1:
+                    return ""
+                statement = stripped[newline_index + 1 :]
+                continue
+            if stripped.startswith("/*"):
+                end_index = stripped.find("*/")
+                if end_index == -1:
+                    return ""
+                statement = stripped[end_index + 2 :]
+                continue
+            return stripped
 
     def _table_columns(self, conn: sqlite3.Connection, table_name: str) -> list[dict[str, Any]]:
         rows = conn.execute(f"PRAGMA table_info({self._quote_identifier(table_name)})").fetchall()

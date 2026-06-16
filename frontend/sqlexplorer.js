@@ -684,11 +684,37 @@ function renderTables() {
 function renderResultTable(result) {
   const columns = result.columns || [];
   const rows = result.rows || [];
+  const isWriteResult = result.operation === "insert" || result.operation === "update";
 
   el.resultsEmptyState.classList.toggle("hidden", columns.length > 0);
   el.resultsTableContainer.classList.toggle("hidden", columns.length === 0);
 
   if (!columns.length) {
+    if (isWriteResult) {
+      el.resultsEmptyState.classList.add("hidden");
+      el.resultsTableContainer.classList.remove("hidden");
+      const operation = String(result.operation || "write").toUpperCase();
+      const rowLabel = `${result.rows_affected ?? 0} row(s) affected`;
+      const lastInsert = result.last_insert_rowid
+        ? `<div><span>Last insert rowid</span><strong>${escapeHtml(result.last_insert_rowid)}</strong></div>`
+        : "";
+      el.resultsTableContainer.innerHTML = `
+        <div class="write-summary">
+          <div>
+            <span>Operation</span>
+            <strong>${escapeHtml(operation)}</strong>
+          </div>
+          <div>
+            <span>Rows affected</span>
+            <strong>${escapeHtml(result.rows_affected ?? 0)}</strong>
+          </div>
+          ${lastInsert}
+        </div>
+      `;
+      el.resultMeta.textContent = rowLabel;
+      return;
+    }
+
     el.resultsTableContainer.innerHTML = "";
     el.resultMeta.textContent = "No columns returned";
     return;
@@ -736,7 +762,8 @@ function renderResultTable(result) {
 
   el.resultsTableContainer.innerHTML = "";
   el.resultsTableContainer.appendChild(table);
-  el.resultMeta.textContent = `${result.row_count} row(s) ${result.truncated ? "(truncated)" : ""}`;
+  const affectedText = isWriteResult ? ` | ${result.rows_affected ?? 0} affected` : "";
+  el.resultMeta.textContent = `${result.row_count} row(s) ${result.truncated ? "(truncated)" : ""}${affectedText}`;
 }
 
 async function loadSources() {
@@ -818,9 +845,9 @@ async function runQuery() {
     throw new Error("Query cannot be empty.");
   }
 
-  setStatus("Running query...", "loading");
-  setConnectionStatus(`Executing read-only SQL against ${path}...`);
-  el.queryInfo.textContent = "Query is running.";
+  setStatus("Running SQL...", "loading");
+  setConnectionStatus(`Executing SQL against ${path}...`);
+  el.queryInfo.textContent = "SQL is running.";
 
   const data = await api("/query", {
     method: "POST",
@@ -833,9 +860,18 @@ async function runQuery() {
 
   state.result = data;
   renderResultTable(data);
-  setStatus("Query completed", "success");
-  el.queryInfo.textContent = `Source: ${data.source.name} | SQL: ${data.sql}`;
-  setConnectionStatus(`Last query completed against ${data.source.resolved_path}`, "success");
+  const isWriteResult = data.operation === "insert" || data.operation === "update";
+  const operation = isWriteResult ? String(data.operation).toUpperCase() : "Query";
+  setStatus(`${operation} completed`, "success");
+  el.queryInfo.textContent = isWriteResult
+    ? `Source: ${data.source.name} | ${data.rows_affected ?? 0} row(s) affected | SQL: ${data.sql}`
+    : `Source: ${data.source.name} | SQL: ${data.sql}`;
+  setConnectionStatus(
+    isWriteResult
+      ? `Write completed against ${data.source.resolved_path}. Refresh tables to update row counts.`
+      : `Last query completed against ${data.source.resolved_path}`,
+    "success"
+  );
   persistPreferences();
 }
 
