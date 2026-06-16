@@ -39,6 +39,7 @@ backend/scripts/
 backend/data/
 frontend/.gitkeep
 reload_local.sh
+.codex_tmp/
 
 # Legacy Railway compatibility shim only
 apps/backend/*

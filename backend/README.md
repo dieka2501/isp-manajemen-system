@@ -14,14 +14,23 @@ pip install -e .
 uvicorn app.main:app --reload
 ```
 
-Setelah server jalan, dashboard SQLite explorer tersedia di:
+Setelah server jalan, dashboard client ISP tersedia di:
 
 ```text
-http://127.0.0.1:8000/sqlexplorer
+http://127.0.0.1:8000/dashboard
 ```
 
-Untuk sekarang, buka URL itu langsung tanpa lewat redirect dari `/` atau
-`/dashboard`.
+Dashboard memakai login client dan Bearer token untuk mengambil data.
+Credential development default akan dibuat di tabel `clients`:
+
+```text
+Email: admin@isp.local
+Password: password
+```
+
+Ganti lewat `CLIENT_DASHBOARD_SEED_EMAIL` dan
+`CLIENT_DASHBOARD_SEED_PASSWORD` sebelum database pertama kali dibuat.
+SQLite explorer legacy tetap tersedia di `/sqlexplorer`.
 
 File SQLite yang bisa dipilih dari dashboard dapat dikonfigurasi lewat
 `SQLITE_EXPLORER_SOURCES_JSON`. Contoh:
@@ -87,12 +96,19 @@ OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-mini
 LLM_RESPONSE_ENABLED=true
 CONVERSATION_STATE_TTL_HOURS=48
+CLIENT_DASHBOARD_JWT_SECRET=
+CLIENT_DASHBOARD_TOKEN_HOURS=12
+CLIENT_DASHBOARD_SEED_EMAIL=admin@isp.local
+CLIENT_DASHBOARD_SEED_PASSWORD=password
+BILLING_SAMPLE_XLSX_PATH=contoh-list-billing.xlsx
 ```
 
 Database SQLite akan otomatis dibuat saat app start dan menyimpan:
 - `accounts`
 - `clients`
 - `devices`
+- `customers`
+- `billing_records`
 - `conversations`
 - `messages`
 - `stock_products`
@@ -120,6 +136,8 @@ Desain ini mendukung:
 - multiple client
 - satu client memiliki banyak device
 - setiap client memiliki token API sendiri
+- dashboard client login memakai email/token client dan password hash
+- data customer dan billing tersimpan di SQLite per client
 - tabel data/operasional/katalog discope dengan `client_id` dan `device_id`
 
 Jika ingin membuat dan seed database tanpa menjalankan server, gunakan:
@@ -164,6 +182,32 @@ GET  /api/v1/chat/conversations
 GET  /api/v1/chat/conversations/{conversation_id}/messages
 ```
 
+Endpoint dashboard client:
+
+```text
+POST /api/v1/client-dashboard/auth/login
+GET  /api/v1/client-dashboard/auth/me
+GET  /api/v1/client-dashboard/summary
+GET  /api/v1/client-dashboard/devices
+GET  /api/v1/client-dashboard/customers
+GET  /api/v1/client-dashboard/packages
+GET  /api/v1/client-dashboard/billing
+GET  /api/v1/client-dashboard/learning/intents
+GET  /api/v1/client-dashboard/learning/unprocessed
+POST /api/v1/client-dashboard/learning/unprocessed/{question_id}/map
+POST /api/v1/client-dashboard/agent/preview
+```
+
+Semua endpoint dashboard selain login memakai header:
+
+```text
+Authorization: Bearer <access_token>
+```
+
+Jika `BILLING_SAMPLE_XLSX_PATH` menunjuk file `.xlsx`, database baru akan
+mengimpor contoh billing menjadi `customers`, `internet_packages`, dan
+`billing_records` untuk client default.
+
 Endpoint data yang discope device menerima parameter `client_id` atau
 `client_token` bersama `device_id` atau `device_identifier`. Untuk
 `POST /api/v1/chat/stock-products`, client dan device wajib dikirim agar stok
@@ -174,7 +218,7 @@ tidak tercampur antar device.
 Saat webhook menerima pesan dan agent menghasilkan intent `unknown` atau confidence
 di bawah ambang aman, pesan tersebut tetap dibalas sesuai flow saat ini, tetapi
 juga disalin ke tabel `unprocessed_questions`. Dashboard di
-`http://127.0.0.1:8000/sqlexplorer` menampilkan tab **Learning Queue** untuk:
+`http://127.0.0.1:8000/dashboard` menampilkan view **Learn Process** untuk:
 
 1. Melihat pertanyaan customer yang belum dipahami native system.
 2. Memilih intent yang benar.
@@ -185,11 +229,12 @@ Mapping yang disimpan langsung masuk SQLite (`sample_utterances` dan/atau
 `keywords`) sehingga agent berikutnya bisa memakai data native sebelum perlu
 fallback ke API OpenAI.
 
-Jika `OPENAI_API_KEY` tersedia, dashboard juga bisa meminta saran mapping lewat
-tombol **Suggest with OpenAI**. Saran ini tidak auto-save; reviewer tetap perlu
-memeriksa intent, mapping type, keyword, normalized keyword, dan weight sebelum
-klik **Save mapping**. Model default adalah `gpt-4o-mini` dan bisa diganti lewat
-`OPENAI_MODEL`.
+Jika `OPENAI_API_KEY` tersedia, endpoint operasional
+`POST /api/v1/chat/learning/unprocessed/{question_id}/suggest` tetap bisa
+dipakai untuk meminta saran mapping. Saran ini tidak auto-save; reviewer tetap
+perlu memeriksa intent, mapping type, keyword, normalized keyword, dan weight
+sebelum menyimpan mapping. Model default adalah `gpt-4o-mini` dan bisa diganti
+lewat `OPENAI_MODEL`.
 
 ## Memory Percakapan Native
 

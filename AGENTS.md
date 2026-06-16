@@ -15,11 +15,12 @@
 - Buat change.log jika tidak ada.
 - Penyimpanan data memakai SQLite
 - Jika ada masih ada koneksi ke API gsheet, segera diganti
+- Jika request feature baru, jangan sampai feature lama hilang atau rusak.
+- Jika feature lama terpaksa harus dihapus, diganti, atau berubah perilaku, WAJIB konfirmasi ke user terlebih dahulu sebelum implementasi.
 
 # Requirment
 - 1 client bisa mempunyai beberapa device
 - Semua client mempunyai data keyword, intent, dan messagenya sendiri-sendiri
-
 
 
 

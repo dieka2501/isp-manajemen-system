@@ -21,6 +21,11 @@ class ClientCreateRequest(BaseModel):
     account_slug: str
     name: str = Field(min_length=2)
     external_ref: str | None = None
+    email: str | None = None
+    password: str | None = None
+    office_address: str | None = None
+    pic_name: str | None = None
+    phone: str | None = None
 
 
 class DeviceRegisterRequest(BaseModel):
@@ -89,6 +94,11 @@ def create_client(payload: ClientCreateRequest) -> dict[str, object]:
             account_slug=payload.account_slug,
             name=payload.name,
             external_ref=payload.external_ref,
+            email=payload.email,
+            password=payload.password,
+            office_address=payload.office_address,
+            pic_name=payload.pic_name,
+            phone=payload.phone,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

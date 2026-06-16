@@ -10,6 +10,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 load_dotenv(PROJECT_ROOT / ".env")
 
 
+def _project_path_from_env(name: str, default: Path) -> str:
+    value = os.getenv(name)
+    if not value:
+        return str(default)
+    path = Path(value)
+    return str(path if path.is_absolute() else PROJECT_ROOT / path)
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str = os.getenv("APP_NAME", "ISP Manajemen Backend")
@@ -44,6 +52,32 @@ class Settings:
         "sqlite_dashboard_session",
     )
     dashboard_session_hours: int = int(os.getenv("DASHBOARD_SESSION_HOURS", "12"))
+    client_dashboard_jwt_secret: str = (
+        os.getenv("CLIENT_DASHBOARD_JWT_SECRET")
+        or os.getenv("DASHBOARD_SECRET")
+        or "dev-client-dashboard-secret"
+    )
+    client_dashboard_token_hours: int = int(os.getenv("CLIENT_DASHBOARD_TOKEN_HOURS", "12"))
+    client_dashboard_seed_email: str = os.getenv(
+        "CLIENT_DASHBOARD_SEED_EMAIL",
+        "admin@isp.local",
+    )
+    client_dashboard_seed_password: str = os.getenv(
+        "CLIENT_DASHBOARD_SEED_PASSWORD",
+        "password",
+    )
+    client_dashboard_seed_office_address: str = os.getenv(
+        "CLIENT_DASHBOARD_SEED_OFFICE_ADDRESS",
+        "Kantor ISP",
+    )
+    client_dashboard_seed_pic_name: str = os.getenv(
+        "CLIENT_DASHBOARD_SEED_PIC_NAME",
+        "Admin ISP",
+    )
+    billing_sample_xlsx_path: str = _project_path_from_env(
+        "BILLING_SAMPLE_XLSX_PATH",
+        PROJECT_ROOT / "contoh-list-billing.xlsx",
+    )
 
 
 @lru_cache
