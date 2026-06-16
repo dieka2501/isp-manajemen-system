@@ -4,6 +4,7 @@
 - Added SQLite `customers` and `billing_records` tables plus a lightweight XLSX billing importer that can seed customer/package/billing data from `BILLING_SAMPLE_XLSX_PATH`.
 - Added `/api/v1/client-dashboard/*` endpoints for login, profile, summary, devices, customers, packages, billing, learning queue mapping, and agent preview.
 - Updated backend tests for client dashboard auth, token validation, sample billing import, and legacy migration safety.
+- Restored the legacy SQLite Explorer as a separate `/sqlexplorer` frontend so it no longer shares the client dashboard shell.
 
 2026-06-15
 - Migrated SQLite chat, learning, stock, and catalog tables to carry explicit `client_id` and `device_id` scope keys for multi-client/multi-device operation.

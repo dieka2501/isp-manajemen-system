@@ -58,11 +58,11 @@ def dashboard_root() -> FileResponse:
 @app.get("/sqlexplorer", include_in_schema=False)
 @app.get("/sqlexplorer/", include_in_schema=False)
 def dashboard() -> FileResponse:
-    index_file = FRONTEND_DIR / "index.html"
+    index_file = FRONTEND_DIR / "sqlexplorer.html"
     if not index_file.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Dashboard frontend is not available.",
+            detail="SQLite explorer frontend is not available.",
         )
     return FileResponse(index_file)
 
