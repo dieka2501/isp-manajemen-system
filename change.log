@@ -1,4 +1,5 @@
 2026-06-16
+- Fixed `/sqlexplorer` table loading after the write-mode SQL change so table metadata still uses a read-only SQLite connection.
 - Added controlled `INSERT` and `UPDATE` support to `/sqlexplorer`, with admin-only write execution, row-affected summaries, and tests that keep destructive SQL blocked.
 - Added admin-only billing workbook upload/import in `/sqlexplorer` so production billing/customer data can be imported into SQLite without committing customer spreadsheets to Git.
 - Added AGENTS.md guardrail that new feature work must preserve existing features, and any unavoidable removal or behavior change requires user confirmation first.

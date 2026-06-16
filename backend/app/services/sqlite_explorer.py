@@ -48,7 +48,7 @@ class SQLiteExplorerService:
         return self.list_sources()[0]
 
     def list_tables(self, db_path: str) -> list[dict[str, Any]]:
-        with self._connect(db_path) as conn:
+        with self._connect(db_path, readonly=True) as conn:
             rows = conn.execute(
                 """
                 SELECT name, type

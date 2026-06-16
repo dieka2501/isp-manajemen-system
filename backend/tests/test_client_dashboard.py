@@ -168,6 +168,21 @@ class ClientDashboardTests(unittest.TestCase):
         self.assertEqual(update_result["rows_affected"], 1)
         self.assertEqual(select_result["rows"], [{"name": "Customer A", "status": "done"}])
 
+    def test_sqlite_explorer_lists_tables_with_readonly_connection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "ops.sqlite3"
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    "CREATE TABLE notes (id INTEGER PRIMARY KEY, name TEXT NOT NULL)"
+                )
+
+            service = SQLiteExplorerService(Settings(chat_database_path=str(db_path)))
+            tables = service.list_tables(str(db_path))
+
+        self.assertEqual(tables[0]["name"], "notes")
+        self.assertEqual(tables[0]["row_count"], 0)
+        self.assertEqual(tables[0]["columns"][0]["name"], "id")
+
     def test_sqlite_explorer_rejects_non_insert_update_writes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "ops.sqlite3"
