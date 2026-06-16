@@ -994,10 +994,115 @@ class SQLiteChatStore:
             return
 
         rows = load_billing_rows(self.settings.billing_sample_xlsx_path)
+        self._import_billing_rows_for_scope(
+            conn,
+            rows=rows,
+            client_id=client_id,
+            device_id=device_id,
+        )
+
+    def import_billing_rows(
+        self,
+        *,
+        rows: list[dict[str, Any]],
+        client_id: int | None = None,
+        device_id: int | None = None,
+    ) -> dict[str, Any]:
+        with self._connect() as conn:
+            if client_id is None:
+                target_client_id, target_device_id = self._ensure_default_catalog_scope(conn)
+            else:
+                client = self._resolve_client(conn, client_id=client_id, client_token=None)
+                if not client:
+                    raise ValueError("Client was not found.")
+                target_client_id = int(client["id"])
+                if device_id is None:
+                    device = conn.execute(
+                        """
+                        SELECT id
+                        FROM devices
+                        WHERE client_id = ?
+                        ORDER BY id
+                        LIMIT 1
+                        """,
+                        (target_client_id,),
+                    ).fetchone()
+                    if not device:
+                        raise ValueError("Client does not have any registered device.")
+                    target_device_id = int(device["id"])
+                else:
+                    device = self._resolve_device(
+                        conn,
+                        client_id=target_client_id,
+                        device_id=device_id,
+                    )
+                    if not device:
+                        raise ValueError("Device was not found for this client.")
+                    target_device_id = int(device["id"])
+
+            self._seed_default_catalog_for_scope(
+                conn,
+                client_id=target_client_id,
+                device_id=target_device_id,
+            )
+            summary = self._import_billing_rows_for_scope(
+                conn,
+                rows=rows,
+                client_id=target_client_id,
+                device_id=target_device_id,
+            )
+            client_profile = self._get_client_profile(conn, target_client_id)
+            device = self._resolve_device(
+                conn,
+                client_id=target_client_id,
+                device_id=target_device_id,
+            )
+        summary["client"] = client_profile
+        summary["device"] = dict(device) if device else None
+        return summary
+
+    def billing_import_scopes(self) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            self._ensure_default_catalog_scope(conn)
+            rows = conn.execute(
+                """
+                SELECT
+                    c.id,
+                    c.name,
+                    c.email,
+                    c.external_ref,
+                    c.is_active,
+                    a.slug AS account_slug
+                FROM clients c
+                JOIN accounts a ON a.id = c.account_id
+                ORDER BY c.created_at ASC, c.id ASC
+                """
+            ).fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            item["devices"] = self.list_client_devices(int(item["id"]))
+            items.append(item)
+        return items
+
+    def _import_billing_rows_for_scope(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        rows: list[dict[str, Any]],
+        client_id: int,
+        device_id: int,
+    ) -> dict[str, Any]:
         now = _utc_now()
+        processed_rows = 0
+        skipped_rows = 0
+        package_codes: set[str] = set()
+        customer_codes: set[str] = set()
+        invoice_numbers: set[str] = set()
         for index, source in enumerate(rows, start=1):
             customer_code, customer_name = _customer_code_and_name(source.get("Nama"))
             if not customer_name:
+                skipped_rows += 1
                 continue
             customer_code = customer_code or f"CUST-{index:03d}"
             package_id = self._upsert_package_from_billing_row(
@@ -1007,6 +1112,9 @@ class SQLiteChatStore:
                 source=source,
                 now=now,
             )
+            package_label = _safe_text(source.get("Paket"))
+            if package_label:
+                package_codes.add(_package_code(package_label))
             installation_date = excel_serial_to_date(source.get("Tanggal Pemasangan"))
             metadata = {
                 "sales": _safe_text(source.get("Sales")),
@@ -1074,6 +1182,11 @@ class SQLiteChatStore:
                 (client_id, customer_code),
             ).fetchone()
             if customer:
+                customer_codes.add(customer_code)
+                invoice_number = self._billing_invoice_number(
+                    customer_code=customer_code,
+                    source=source,
+                )
                 self._upsert_billing_from_billing_row(
                     conn,
                     client_id=client_id,
@@ -1083,6 +1196,20 @@ class SQLiteChatStore:
                     source=source,
                     now=now,
                 )
+                invoice_numbers.add(invoice_number)
+                processed_rows += 1
+            else:
+                skipped_rows += 1
+        return {
+            "client_id": client_id,
+            "device_id": device_id,
+            "source_rows": len(rows),
+            "processed_rows": processed_rows,
+            "skipped_rows": skipped_rows,
+            "package_count": len(package_codes),
+            "customer_count": len(customer_codes),
+            "billing_count": len(invoice_numbers),
+        }
 
     def _upsert_package_from_billing_row(
         self,
@@ -1165,15 +1292,16 @@ class SQLiteChatStore:
         amount = _safe_int(source.get("Pembayran")) or 0
         paid_amount = _safe_int(source.get("Bayar")) or 0
         arrears_amount = _safe_int(source.get("Tunggakan (bila ada)")) or 0
-        payment_date = excel_serial_to_date(source.get("Tanggal"))
-        billing_period = payment_date[:7] if payment_date else "sample"
+        invoice_number, billing_period, payment_date = self._billing_invoice_parts(
+            customer_code=customer_code,
+            source=source,
+        )
         status = self._normalize_billing_status(
             source.get("Status"),
             amount=amount,
             paid_amount=paid_amount,
             package_value=source.get("Pembayran"),
         )
-        invoice_number = f"{billing_period}-{customer_code}"
         notes = None
         if amount == 0 and _safe_text(source.get("Pembayran")):
             notes = f"Pembayaran asli: {_safe_text(source.get('Pembayran'))}"
@@ -1238,6 +1366,28 @@ class SQLiteChatStore:
                 now,
             ),
         )
+
+    def _billing_invoice_number(
+        self,
+        *,
+        customer_code: str,
+        source: dict[str, Any],
+    ) -> str:
+        invoice_number, _, _ = self._billing_invoice_parts(
+            customer_code=customer_code,
+            source=source,
+        )
+        return invoice_number
+
+    def _billing_invoice_parts(
+        self,
+        *,
+        customer_code: str,
+        source: dict[str, Any],
+    ) -> tuple[str, str, str | None]:
+        payment_date = excel_serial_to_date(source.get("Tanggal"))
+        billing_period = payment_date[:7] if payment_date else "sample"
+        return f"{billing_period}-{customer_code}", billing_period, payment_date
 
     def _normalize_billing_status(
         self,

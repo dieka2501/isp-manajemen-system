@@ -208,6 +208,18 @@ Jika `BILLING_SAMPLE_XLSX_PATH` menunjuk file `.xlsx`, database baru akan
 mengimpor contoh billing menjadi `customers`, `internet_packages`, dan
 `billing_records` untuk client default.
 
+Untuk production, data billing/customer asli tidak perlu dicommit ke Git. Buka
+`/sqlexplorer`, login dengan `DASHBOARD_SECRET`, masuk tab **SQLite Explorer**,
+lalu gunakan panel **Import Billing XLSX**. Pilih client, device, dan file
+`.xlsx`; backend akan meng-upsert data ke SQLite:
+
+- `customers`
+- `billing_records`
+- `internet_packages`
+
+Upload import bersifat idempotent untuk invoice/customer yang sama, sehingga
+file yang sama bisa diupload ulang tanpa menggandakan row.
+
 Endpoint data yang discope device menerima parameter `client_id` atau
 `client_token` bersama `device_id` atau `device_identifier`. Untuk
 `POST /api/v1/chat/stock-products`, client dan device wajib dikirim agar stok

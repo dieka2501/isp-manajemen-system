@@ -11,6 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi import HTTPException
 
 from app.core.config import Settings
+from app.api.sqlite_explorer import _parse_multipart_form
+from app.services.billing_import import load_billing_rows_from_bytes
 from app.services.chat_store import SQLiteChatStore
 from app.services.client_dashboard_auth import ClientDashboardTokenService
 
@@ -21,6 +23,8 @@ class ClientDashboardTests(unittest.TestCase):
             Settings(
                 chat_database_path=str(Path(temp_dir) / "chat.sqlite3"),
                 billing_sample_xlsx_path=billing_sample_path,
+                client_dashboard_seed_email="admin@isp.local",
+                client_dashboard_seed_password="password",
             )
         )
 
@@ -82,6 +86,56 @@ class ClientDashboardTests(unittest.TestCase):
         self.assertEqual(billing[0]["status"], "paid")
         self.assertEqual(billing[0]["amount"], 200000)
         self.assertIn("10Mbps", {package["package_name"] for package in packages})
+
+    def test_manual_billing_import_from_uploaded_workbook_bytes_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workbook_path = Path(temp_dir) / "billing.xlsx"
+            _write_minimal_billing_xlsx(workbook_path)
+            store = self._new_store(temp_dir)
+
+            store.initialize()
+            client = store.authenticate_client(
+                identifier="admin@isp.local",
+                password="password",
+            )
+            rows = load_billing_rows_from_bytes(workbook_path.read_bytes())
+            first_summary = store.import_billing_rows(
+                rows=rows,
+                client_id=client["id"],
+            )
+            second_summary = store.import_billing_rows(
+                rows=rows,
+                client_id=client["id"],
+            )
+            customers = store.list_customers(client_id=client["id"])
+            billing = store.list_billing_records(client_id=client["id"])
+            scopes = store.billing_import_scopes()
+
+        self.assertEqual(first_summary["processed_rows"], 1)
+        self.assertEqual(second_summary["processed_rows"], 1)
+        self.assertEqual(len(customers), 1)
+        self.assertEqual(len(billing), 1)
+        self.assertEqual(scopes[0]["devices"][0]["client_id"], client["id"])
+
+    def test_sqlite_explorer_multipart_parser_reads_billing_file_and_fields(self) -> None:
+        boundary = "billing-boundary"
+        body = (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="client_id"\r\n\r\n'
+            "7\r\n"
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="billing_file"; filename="billing.xlsx"\r\n'
+            "Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n"
+        ).encode("utf-8") + b"fake-xlsx-bytes\r\n" + f"--{boundary}--\r\n".encode("utf-8")
+
+        fields, files = _parse_multipart_form(
+            content_type=f"multipart/form-data; boundary={boundary}",
+            body=body,
+        )
+
+        self.assertEqual(fields["client_id"], "7")
+        self.assertEqual(files["billing_file"].filename, "billing.xlsx")
+        self.assertEqual(files["billing_file"].data, b"fake-xlsx-bytes")
 
 
 def _write_minimal_billing_xlsx(path: Path) -> None:

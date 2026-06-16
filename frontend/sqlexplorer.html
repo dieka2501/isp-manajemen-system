@@ -211,6 +211,36 @@
         </div>
       </section>
 
+      <section class="glass-panel p-5">
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div class="space-y-2">
+            <h2 class="text-lg font-semibold text-white">Import Billing XLSX</h2>
+            <p class="text-sm text-slate-400">
+              Upload workbook billing ke SQLite tanpa menyimpan file customer di repository.
+            </p>
+          </div>
+          <span id="billingImportStatus" class="status-pill status-idle">Ready</span>
+        </div>
+        <div class="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr_1.2fr_auto] lg:items-end">
+          <label class="space-y-2">
+            <span class="section-label">Client</span>
+            <select id="billingImportClientSelect" class="control-input"></select>
+          </label>
+          <label class="space-y-2">
+            <span class="section-label">Device</span>
+            <select id="billingImportDeviceSelect" class="control-input"></select>
+          </label>
+          <label class="space-y-2">
+            <span class="section-label">File .xlsx</span>
+            <input id="billingImportFileInput" class="control-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+          </label>
+          <button id="billingImportButton" class="action-button action-primary" type="button">Import billing</button>
+        </div>
+        <div id="billingImportSummary" class="mt-4 text-sm text-slate-400">
+          Import bersifat upsert: customer, paket, dan billing yang sama akan diperbarui, bukan digandakan.
+        </div>
+      </section>
+
       <main class="grid gap-6 lg:grid-cols-[340px_1fr]">
         <aside class="glass-panel flex min-h-[580px] flex-col overflow-hidden">
           <div class="border-b border-white/10 p-5">
