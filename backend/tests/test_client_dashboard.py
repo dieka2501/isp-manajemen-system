@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import sqlite3
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from zipfile import ZipFile
@@ -59,12 +60,41 @@ class ClientDashboardTests(unittest.TestCase):
         service = ClientDashboardTokenService(
             Settings(client_dashboard_jwt_secret="unit-test-secret")
         )
+        issued_at = int(time.time())
 
-        token, _ = service.issue_token(42)
+        token, expires_at = service.issue_token(42)
 
+        self.assertEqual(service.settings.client_dashboard_token_hours, 2)
+        self.assertGreaterEqual(expires_at - issued_at, 7200)
+        self.assertLessEqual(expires_at - issued_at, 7202)
         self.assertEqual(service.require_client_id(f"Bearer {token}"), 42)
         with self.assertRaises(HTTPException):
             service.require_client_id(f"Bearer {token}x")
+
+    def test_token_service_rejects_tokens_older_than_session_window(self) -> None:
+        service = ClientDashboardTokenService(
+            Settings(
+                client_dashboard_jwt_secret="unit-test-secret",
+                client_dashboard_token_hours=2,
+            )
+        )
+        now = int(time.time())
+        header = {"alg": "HS256", "typ": "JWT"}
+        payload = {
+            "sub": "42",
+            "iat": now - (3 * 3600),
+            "exp": now + 3600,
+        }
+        signing_input = ".".join(
+            [
+                service._encode_json(header),
+                service._encode_json(payload),
+            ]
+        )
+        token = f"{signing_input}.{service._sign(signing_input)}"
+
+        with self.assertRaises(HTTPException):
+            service.require_client_id(f"Bearer {token}")
 
     def test_sample_billing_workbook_seeds_customers_and_billing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

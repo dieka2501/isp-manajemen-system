@@ -57,7 +57,7 @@ class Settings:
         or os.getenv("DASHBOARD_SECRET")
         or "dev-client-dashboard-secret"
     )
-    client_dashboard_token_hours: int = int(os.getenv("CLIENT_DASHBOARD_TOKEN_HOURS", "12"))
+    client_dashboard_token_hours: int = int(os.getenv("CLIENT_DASHBOARD_TOKEN_HOURS", "2"))
     client_dashboard_seed_email: str = os.getenv(
         "CLIENT_DASHBOARD_SEED_EMAIL",
         "admin@isp.local",

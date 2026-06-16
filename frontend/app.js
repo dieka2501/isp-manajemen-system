@@ -3,6 +3,8 @@ const STORAGE_KEYS = {
   expiresAt: "clientDashboard.expiresAt",
 };
 
+const SESSION_EXPIRED_MESSAGE = "Sesi habis setelah 2 jam. Silakan login lagi.";
+
 const state = {
   token: localStorage.getItem(STORAGE_KEYS.token) || "",
   expiresAt: Number(localStorage.getItem(STORAGE_KEYS.expiresAt) || 0),
@@ -15,6 +17,7 @@ const state = {
   learningItems: [],
   learningIntents: [],
   selectedLearningId: null,
+  sessionTimerId: null,
 };
 
 const el = {
@@ -26,6 +29,7 @@ const el = {
   loginButton: document.getElementById("loginButton"),
   loginMessage: document.getElementById("loginMessage"),
   logoutButton: document.getElementById("logoutButton"),
+  logoutTopButton: document.getElementById("logoutTopButton"),
   refreshButton: document.getElementById("refreshButton"),
   connectionStatus: document.getElementById("connectionStatus"),
   sidebarClientName: document.getElementById("sidebarClientName"),
@@ -119,17 +123,70 @@ function persistToken(token, expiresAt) {
   state.expiresAt = Number(expiresAt || 0);
   localStorage.setItem(STORAGE_KEYS.token, state.token);
   localStorage.setItem(STORAGE_KEYS.expiresAt, String(state.expiresAt));
+  scheduleSessionExpiry();
 }
 
 function clearToken() {
   state.token = "";
   state.expiresAt = 0;
   state.client = null;
+  if (state.sessionTimerId !== null) {
+    window.clearTimeout(state.sessionTimerId);
+    state.sessionTimerId = null;
+  }
   localStorage.removeItem(STORAGE_KEYS.token);
   localStorage.removeItem(STORAGE_KEYS.expiresAt);
 }
 
+function resetDashboardState() {
+  state.summary = null;
+  state.customers = [];
+  state.packages = [];
+  state.billing = [];
+  state.learningItems = [];
+  state.learningIntents = [];
+  state.selectedLearningId = null;
+  el.summaryGrid.innerHTML = "";
+  el.recentBilling.innerHTML = "";
+  el.customersTable.innerHTML = "";
+  el.packagesTable.innerHTML = "";
+  el.billingTable.innerHTML = "";
+  el.learningList.innerHTML = "";
+  el.mappingIntentSelect.innerHTML = "";
+  renderLearningDetail();
+}
+
+function clearSession(message = "") {
+  clearToken();
+  resetDashboardState();
+  showLogin(message);
+}
+
+function isSessionExpired() {
+  return Boolean(state.expiresAt && state.expiresAt * 1000 <= Date.now());
+}
+
+function scheduleSessionExpiry() {
+  if (state.sessionTimerId !== null) {
+    window.clearTimeout(state.sessionTimerId);
+    state.sessionTimerId = null;
+  }
+  if (!state.expiresAt) return;
+  const delay = state.expiresAt * 1000 - Date.now();
+  if (delay <= 0) {
+    clearSession(SESSION_EXPIRED_MESSAGE);
+    return;
+  }
+  state.sessionTimerId = window.setTimeout(() => {
+    clearSession(SESSION_EXPIRED_MESSAGE);
+  }, delay);
+}
+
 async function dashboardApi(path, options = {}) {
+  if (isSessionExpired()) {
+    clearSession(SESSION_EXPIRED_MESSAGE);
+    throw new Error(SESSION_EXPIRED_MESSAGE);
+  }
   const response = await fetch(`/api/v1/client-dashboard${path}`, {
     headers: {
       "Content-Type": "application/json",
@@ -141,8 +198,7 @@ async function dashboardApi(path, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401) {
-      clearToken();
-      showLogin("Sesi habis. Silakan login lagi.");
+      clearSession(SESSION_EXPIRED_MESSAGE);
     }
     throw new Error(data.detail || `Request gagal (${response.status})`);
   }
@@ -413,13 +469,17 @@ async function login(event) {
 }
 
 async function loadDashboard() {
-  if (!state.token || (state.expiresAt && state.expiresAt * 1000 < Date.now())) {
-    clearToken();
-    showLogin("Silakan login untuk membuka dashboard.");
+  if (!state.token) {
+    clearSession("Silakan login untuk membuka dashboard.");
+    return;
+  }
+  if (isSessionExpired()) {
+    clearSession(SESSION_EXPIRED_MESSAGE);
     return;
   }
 
   showApp();
+  scheduleSessionExpiry();
   setStatus("Memuat data...", "loading");
   const me = await dashboardApi("/auth/me");
   state.client = me.client;
@@ -544,8 +604,11 @@ function bindEvents() {
   });
 
   el.logoutButton.addEventListener("click", () => {
-    clearToken();
-    showLogin("Anda sudah keluar.");
+    clearSession("Anda sudah keluar.");
+  });
+
+  el.logoutTopButton.addEventListener("click", () => {
+    clearSession("Anda sudah keluar.");
   });
 
   el.refreshButton.addEventListener("click", () => {
