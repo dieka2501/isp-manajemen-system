@@ -175,6 +175,14 @@ body {
   color: var(--text);
 }
 
+.runtime-version {
+  color: rgba(226, 232, 240, 0.72);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .tab-button {
   display: inline-flex;
   align-items: center;

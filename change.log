@@ -1,4 +1,5 @@
 2026-06-18
+- Added runtime version metadata through `VERSION` and `/health`, plus visible version badges on the client dashboard and SQLite Explorer so deployed builds can be identified quickly.
 - Added a SQLite-backed customer registration flow triggered from chatbot coverage/high-interaction conversations, with public registration/payment pages, customer statuses from registered through active, admin approval/payment/activation APIs, payment proof uploads, virtual account callback support, and technician notification tracking.
 - Added misaligned message dumps for low-confidence or "belum nyambung" chatbot replies, plus SQLite Explorer tabs to review dumps and manage customer registrations from the operations dashboard.
 

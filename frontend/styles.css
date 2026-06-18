@@ -258,6 +258,20 @@ body {
   color: var(--danger);
 }
 
+.runtime-version {
+  margin: 0;
+  color: rgba(217, 226, 242, 0.72);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.login-panel .runtime-version {
+  color: var(--muted);
+}
+
 .button-danger:hover {
   border-color: #fda29b;
   background: #fee4e2;
