@@ -38,6 +38,10 @@ def health_check() -> dict[str, str]:
     return {
         "status": "ok",
         "environment": settings.app_env,
+        "version": settings.app_version,
+        "build_commit": settings.app_build_commit,
+        "build_commit_short": settings.app_build_commit[:8],
+        "build_branch": settings.app_build_branch,
     }
 
 

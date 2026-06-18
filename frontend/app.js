@@ -18,6 +18,7 @@ const state = {
   learningIntents: [],
   selectedLearningId: null,
   sessionTimerId: null,
+  runtime: null,
 };
 
 const el = {
@@ -28,7 +29,9 @@ const el = {
   loginPassword: document.getElementById("loginPassword"),
   loginButton: document.getElementById("loginButton"),
   loginMessage: document.getElementById("loginMessage"),
+  loginRuntimeVersion: document.getElementById("loginRuntimeVersion"),
   logoutButton: document.getElementById("logoutButton"),
+  runtimeVersion: document.getElementById("runtimeVersion"),
   refreshButton: document.getElementById("refreshButton"),
   connectionStatus: document.getElementById("connectionStatus"),
   sidebarClientName: document.getElementById("sidebarClientName"),
@@ -102,6 +105,39 @@ function formatDate(value) {
 function setStatus(message, type = "idle") {
   el.connectionStatus.textContent = message;
   el.connectionStatus.className = `status status-${type}`;
+}
+
+function runtimeLabel(runtime) {
+  if (!runtime) {
+    return "Version unknown";
+  }
+  const version = runtime.version || "dev";
+  const commit = runtime.build_commit_short || "";
+  const branch = runtime.build_branch || "";
+  const suffix = [commit, branch].filter(Boolean).join(" / ");
+  return suffix ? `Version ${version} (${suffix})` : `Version ${version}`;
+}
+
+function renderRuntimeVersion() {
+  const label = runtimeLabel(state.runtime);
+  if (el.runtimeVersion) {
+    el.runtimeVersion.textContent = label;
+    el.runtimeVersion.title = JSON.stringify(state.runtime || {}, null, 2);
+  }
+  if (el.loginRuntimeVersion) {
+    el.loginRuntimeVersion.textContent = label;
+    el.loginRuntimeVersion.title = JSON.stringify(state.runtime || {}, null, 2);
+  }
+}
+
+async function loadRuntimeVersion() {
+  try {
+    const response = await fetch("/health", { credentials: "same-origin" });
+    state.runtime = await response.json();
+  } catch (error) {
+    state.runtime = null;
+  }
+  renderRuntimeVersion();
 }
 
 function showLogin(message = "") {
@@ -655,6 +691,7 @@ function showFatalError(error) {
 
 async function bootstrap() {
   bindEvents();
+  await loadRuntimeVersion();
   if (!state.token) {
     showLogin("Silakan login untuk membuka dashboard.");
     return;

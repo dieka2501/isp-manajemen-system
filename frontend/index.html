@@ -9,7 +9,7 @@
       content="Dashboard client ISP untuk melihat customer, paket, billing, dan learning queue."
     />
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="/dashboard-assets/styles.css?v=client-dashboard-20260616-logout-visible" />
+    <link rel="stylesheet" href="/dashboard-assets/styles.css?v=runtime-version-20260618" />
   </head>
   <body>
     <section id="loginView" class="login-view">
@@ -28,6 +28,7 @@
         </label>
         <button id="loginButton" class="button button-primary w-full" type="submit">Masuk</button>
         <p id="loginMessage" class="text-sm text-slate-500">Gunakan akun client yang tersimpan di SQLite.</p>
+        <p id="loginRuntimeVersion" class="runtime-version">Version loading...</p>
       </form>
     </section>
 
@@ -48,6 +49,7 @@
           <button class="nav-item" type="button" data-view="learning">Learn Process</button>
         </nav>
         <button id="logoutButton" class="button button-danger mt-auto" type="button">Keluar</button>
+        <div id="runtimeVersion" class="runtime-version">Version loading...</div>
       </aside>
 
       <main class="main-panel">
@@ -209,6 +211,6 @@
       </main>
     </section>
 
-    <script src="/dashboard-assets/app.js?v=client-dashboard-20260616-logout-visible" defer></script>
+    <script src="/dashboard-assets/app.js?v=runtime-version-20260618" defer></script>
   </body>
 </html>

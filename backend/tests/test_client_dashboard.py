@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi import HTTPException
 
+from app.main import health_check
 from app.core.config import Settings
 from app.api.sqlite_explorer import _parse_multipart_form
 from app.services.billing_import import load_billing_rows_from_bytes
@@ -56,6 +57,14 @@ class ClientDashboardTests(unittest.TestCase):
         self.assertEqual(row["pic_name"], "Admin ISP")
         self.assertNotEqual(row["password_hash"], "password")
         self.assertTrue(str(row["password_hash"]).startswith("pbkdf2_sha256$"))
+
+    def test_health_check_exposes_runtime_version(self) -> None:
+        item = health_check()
+
+        self.assertEqual(item["status"], "ok")
+        self.assertIn("version", item)
+        self.assertTrue(item["version"])
+        self.assertIn("build_commit_short", item)
 
     def test_token_service_roundtrip_and_rejects_bad_token(self) -> None:
         service = ClientDashboardTokenService(

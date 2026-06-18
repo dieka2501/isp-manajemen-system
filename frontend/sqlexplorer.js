@@ -17,6 +17,7 @@ const state = {
   selectedDumpId: null,
   registrations: [],
   selectedRegistrationId: null,
+  runtime: null,
 };
 
 const el = {
@@ -82,6 +83,8 @@ const el = {
   billingImportButton: document.getElementById("billingImportButton"),
   billingImportStatus: document.getElementById("billingImportStatus"),
   billingImportSummary: document.getElementById("billingImportSummary"),
+  authRuntimeVersion: document.getElementById("authRuntimeVersion"),
+  opsRuntimeVersion: document.getElementById("opsRuntimeVersion"),
   refreshDumpButton: document.getElementById("refreshDumpButton"),
   dumpStatusFilter: document.getElementById("dumpStatusFilter"),
   dumpLimitInput: document.getElementById("dumpLimitInput"),
@@ -246,6 +249,36 @@ async function registrationApi(path, options = {}) {
     throw new Error(data.detail || `Request failed with status ${response.status}`);
   }
   return data;
+}
+
+function runtimeLabel(runtime) {
+  if (!runtime) {
+    return "Version unknown";
+  }
+  const version = runtime.version || "dev";
+  const commit = runtime.build_commit_short || "";
+  const branch = runtime.build_branch || "";
+  const suffix = [commit, branch].filter(Boolean).join(" / ");
+  return suffix ? `Version ${version} (${suffix})` : `Version ${version}`;
+}
+
+function renderRuntimeVersion() {
+  const label = runtimeLabel(state.runtime);
+  [el.authRuntimeVersion, el.opsRuntimeVersion].forEach((target) => {
+    if (!target) return;
+    target.textContent = label;
+    target.title = JSON.stringify(state.runtime || {}, null, 2);
+  });
+}
+
+async function loadRuntimeVersion() {
+  try {
+    const response = await fetch("/health", { credentials: "same-origin" });
+    state.runtime = await response.json();
+  } catch (error) {
+    state.runtime = null;
+  }
+  renderRuntimeVersion();
 }
 
 function showAuthGate(message) {
@@ -1391,6 +1424,7 @@ function showError(error) {
 async function bootstrap() {
   restorePreferences();
   bindEvents();
+  await loadRuntimeVersion();
   try {
     const authenticated = await checkAuth();
     if (!authenticated) {

@@ -10,6 +10,22 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 load_dotenv(PROJECT_ROOT / ".env")
 
 
+def _first_env(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value:
+            return value.strip()
+    return ""
+
+
+def _version_from_file() -> str:
+    version_file = PROJECT_ROOT / "VERSION"
+    if not version_file.exists():
+        return "dev"
+    value = version_file.read_text(encoding="utf-8").strip()
+    return value or "dev"
+
+
 def _project_path_from_env(name: str, default: Path) -> str:
     value = os.getenv(name)
     if not value:
@@ -22,6 +38,22 @@ def _project_path_from_env(name: str, default: Path) -> str:
 class Settings:
     app_name: str = os.getenv("APP_NAME", "ISP Manajemen Backend")
     app_env: str = os.getenv("APP_ENV", "development")
+    app_version: str = os.getenv("APP_VERSION", _version_from_file())
+    app_build_commit: str = _first_env(
+        "APP_BUILD_COMMIT",
+        "RAILWAY_GIT_COMMIT_SHA",
+        "RENDER_GIT_COMMIT",
+        "VERCEL_GIT_COMMIT_SHA",
+        "GIT_COMMIT_SHA",
+        "COMMIT_SHA",
+        "SOURCE_VERSION",
+    )
+    app_build_branch: str = _first_env(
+        "APP_BUILD_BRANCH",
+        "RAILWAY_GIT_BRANCH",
+        "VERCEL_GIT_COMMIT_REF",
+        "GIT_BRANCH",
+    )
     app_debug: bool = os.getenv("APP_DEBUG", "true").lower() == "true"
     app_host: str = os.getenv("APP_HOST", "127.0.0.1")
     app_port: int = int(os.getenv("PORT", os.getenv("APP_PORT", "8000")))
