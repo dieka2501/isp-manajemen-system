@@ -16,6 +16,7 @@ from app.core.config import Settings
 from app.api.sqlite_explorer import _parse_multipart_form
 from app.services.billing_import import load_billing_rows_from_bytes
 from app.services.chat_store import SQLiteChatStore
+from app.services.chatbot import ISPCSChatService
 from app.services.client_dashboard_auth import ClientDashboardTokenService
 from app.services.sqlite_explorer import SQLiteExplorerService
 
@@ -148,6 +149,115 @@ class ClientDashboardTests(unittest.TestCase):
         self.assertEqual(len(customers), 1)
         self.assertEqual(len(billing), 1)
         self.assertEqual(scopes[0]["devices"][0]["client_id"], client["id"])
+
+    def test_customer_registration_flow_moves_registered_to_active(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = self._new_store(temp_dir)
+            store.initialize()
+            stored = store.save_incoming_message(
+                {
+                    "sender": "08123456789",
+                    "name": "Customer WA",
+                    "message": "di Soreang sudah tercover?",
+                    "device": "registration-device",
+                }
+            )
+
+            invitation = store.get_or_create_customer_registration_invitation(stored)
+            registered = store.submit_customer_registration(
+                token=invitation["token"],
+                name="Customer WA",
+                phone="08123456789",
+                email="customer@example.test",
+                address="Jl. Soreang No 1",
+                maps_link="https://maps.example.test/customer",
+            )
+            approved = store.approve_customer_registration(
+                registration_id=registered["id"],
+                amount=150000,
+            )
+            paid = store.record_registration_payment(
+                registration_id=registered["id"],
+                payment_method="cash",
+                amount=150000,
+                reference_number="CASH-1",
+            )
+            active = store.complete_customer_installation(
+                registration_id=registered["id"],
+                notes="Installed",
+            )
+            customers = store.list_customers(
+                client_id=stored.device.client_id,
+                status_filter="all",
+            )
+
+        self.assertTrue(invitation["created"])
+        self.assertIn("/register/", invitation["registration_url"])
+        self.assertEqual(registered["status"], "registered")
+        self.assertEqual(approved["status"], "approved")
+        self.assertEqual(len(approved["customer_code"]), 10)
+        self.assertEqual(paid["status"], "paid")
+        self.assertEqual(paid["installation_tasks"][0]["status"], "pending")
+        self.assertEqual(active["status"], "active")
+        self.assertEqual(customers[0]["status"], "active")
+        self.assertEqual(customers[0]["maps_link"], "https://maps.example.test/customer")
+
+    def test_chatbot_offers_registration_link_after_coverage_question(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings = Settings(
+                chat_database_path=str(Path(temp_dir) / "chat.sqlite3"),
+                billing_sample_xlsx_path="",
+                llm_response_enabled=False,
+                public_base_url="https://isp.example.test",
+                fonnte_token="",
+            )
+            SQLiteChatStore(settings).initialize()
+
+            result = ISPCSChatService(settings).handle_incoming_payload(
+                {
+                    "sender": "08123456789",
+                    "name": "Coverage Tester",
+                    "message": "di Soreang sudah tercover?",
+                    "device": "coverage-device",
+                }
+            )
+
+        self.assertIn("https://isp.example.test/register/", result["reply_text"])
+        self.assertFalse(result["reply_sent"])
+
+    def test_message_dump_can_be_listed_and_reviewed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = self._new_store(temp_dir)
+            store.initialize()
+            stored = store.save_incoming_message(
+                {
+                    "sender": "08123456789",
+                    "name": "Dump Tester",
+                    "message": "pertanyaan yang belum nyambung",
+                    "device": "dump-device",
+                }
+            )
+            store.save_misaligned_message_dump(
+                stored_message=stored,
+                analysis={
+                    "intent": {"intent_code": "unknown", "confidence": 0.0},
+                    "candidates": [],
+                    "entities": [],
+                },
+                bot_response="Maaf Kak, saya belum nyambung.",
+                reason="unknown_intent",
+            )
+            dumps = store.list_misaligned_message_dumps()
+            reviewed = store.review_misaligned_message_dump(
+                dump_id=dumps[0]["id"],
+                status="reviewed",
+                reviewer_notes="Mapped later",
+            )
+
+        self.assertEqual(len(dumps), 1)
+        self.assertEqual(dumps[0]["reason"], "unknown_intent")
+        self.assertEqual(reviewed["status"], "reviewed")
+        self.assertEqual(reviewed["reviewer_notes"], "Mapped later")
 
     def test_sqlite_explorer_multipart_parser_reads_billing_file_and_fields(self) -> None:
         boundary = "billing-boundary"

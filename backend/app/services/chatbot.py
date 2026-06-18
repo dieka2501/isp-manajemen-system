@@ -100,6 +100,16 @@ class ISPCSChatService:
             knowledge=knowledge,
             native_reply=agent_response.reply_text,
         )
+        registration_invitation = self._maybe_offer_registration(
+            stored_message=stored_message,
+            intent_code=agent_response.intent.intent_code,
+        )
+        if registration_invitation:
+            reply_text = (
+                f"{reply_text}\n\n"
+                "Kalau Kakak mau lanjut pendaftaran, isi form ini ya: "
+                f"{registration_invitation['registration_url']}"
+            )
         state_after = self._finalize_state(
             state=agent_response.memory_update,
             knowledge=knowledge,
@@ -158,6 +168,22 @@ class ISPCSChatService:
             knowledge=knowledge,
             bot_response=reply_text,
         )
+        dump_reason = self._misaligned_dump_reason(
+            agent_response=agent_response,
+            reply_text=reply_text,
+            review_reason=review_reason,
+        )
+        if dump_reason:
+            self.store.save_misaligned_message_dump(
+                stored_message=stored_message,
+                analysis={
+                    **agent_response.as_dict(),
+                    "knowledge": knowledge,
+                    "final_reply_text": reply_text,
+                },
+                bot_response=reply_text,
+                reason=dump_reason,
+            )
 
         return {
             "conversation_id": stored_message.conversation_id,
@@ -193,6 +219,41 @@ class ISPCSChatService:
         if agent_response.intent.confidence < 0.35:
             return "low_confidence"
         return None
+
+    def _misaligned_dump_reason(
+        self,
+        *,
+        agent_response: Any,
+        reply_text: str | None,
+        review_reason: str | None,
+    ) -> str | None:
+        if review_reason:
+            return review_reason
+        text = (reply_text or "").lower()
+        if "belum nyambung" in text:
+            return "native_reply_not_connected"
+        if agent_response.intent.intent_code == "unknown":
+            return "unknown_intent"
+        return None
+
+    def _maybe_offer_registration(
+        self,
+        *,
+        stored_message: Any,
+        intent_code: str,
+    ) -> dict[str, Any] | None:
+        question_count = self.store.count_incoming_messages(stored_message.conversation_id)
+        should_offer = (
+            intent_code == "ask_coverage"
+            or question_count >= self.settings.registration_offer_message_threshold
+        )
+        if not should_offer:
+            return None
+
+        invitation = self.store.get_or_create_customer_registration_invitation(stored_message)
+        if not invitation.get("created"):
+            return None
+        return invitation
 
     def _finalize_state(
         self,

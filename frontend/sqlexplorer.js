@@ -13,14 +13,22 @@ const state = {
   learningIntents: [],
   selectedLearningId: null,
   billingImportScopes: [],
+  messageDumps: [],
+  selectedDumpId: null,
+  registrations: [],
+  selectedRegistrationId: null,
 };
 
 const el = {
   authGate: document.getElementById("authGate"),
   dashboardShell: document.getElementById("dashboardShell"),
   learningTab: document.getElementById("learningTab"),
+  dumpTab: document.getElementById("dumpTab"),
+  registrationsTab: document.getElementById("registrationsTab"),
   explorerTab: document.getElementById("explorerTab"),
   learningView: document.getElementById("learningView"),
+  messageDumpView: document.getElementById("messageDumpView"),
+  registrationsView: document.getElementById("registrationsView"),
   explorerView: document.getElementById("explorerView"),
   loginForm: document.getElementById("loginForm"),
   passwordInput: document.getElementById("passwordInput"),
@@ -74,6 +82,37 @@ const el = {
   billingImportButton: document.getElementById("billingImportButton"),
   billingImportStatus: document.getElementById("billingImportStatus"),
   billingImportSummary: document.getElementById("billingImportSummary"),
+  refreshDumpButton: document.getElementById("refreshDumpButton"),
+  dumpStatusFilter: document.getElementById("dumpStatusFilter"),
+  dumpLimitInput: document.getElementById("dumpLimitInput"),
+  dumpList: document.getElementById("dumpList"),
+  dumpCount: document.getElementById("dumpCount"),
+  dumpDetailTitle: document.getElementById("dumpDetailTitle"),
+  dumpMeta: document.getElementById("dumpMeta"),
+  dumpStatusBadge: document.getElementById("dumpStatusBadge"),
+  dumpMessageBox: document.getElementById("dumpMessageBox"),
+  dumpBotBox: document.getElementById("dumpBotBox"),
+  dumpNotesInput: document.getElementById("dumpNotesInput"),
+  markDumpReviewedButton: document.getElementById("markDumpReviewedButton"),
+  markDumpIgnoredButton: document.getElementById("markDumpIgnoredButton"),
+  dumpActionStatus: document.getElementById("dumpActionStatus"),
+  refreshRegistrationsButton: document.getElementById("refreshRegistrationsButton"),
+  registrationStatusFilter: document.getElementById("registrationStatusFilter"),
+  registrationLimitInput: document.getElementById("registrationLimitInput"),
+  registrationsList: document.getElementById("registrationsList"),
+  registrationsCount: document.getElementById("registrationsCount"),
+  registrationDetailTitle: document.getElementById("registrationDetailTitle"),
+  registrationMeta: document.getElementById("registrationMeta"),
+  registrationStatusBadge: document.getElementById("registrationStatusBadge"),
+  registrationSummaryBox: document.getElementById("registrationSummaryBox"),
+  approveAmountInput: document.getElementById("approveAmountInput"),
+  approvePaymentMethodSelect: document.getElementById("approvePaymentMethodSelect"),
+  approveVirtualAccountInput: document.getElementById("approveVirtualAccountInput"),
+  approveRegistrationButton: document.getElementById("approveRegistrationButton"),
+  cashPaymentButton: document.getElementById("cashPaymentButton"),
+  bankPaymentButton: document.getElementById("bankPaymentButton"),
+  activateRegistrationButton: document.getElementById("activateRegistrationButton"),
+  registrationActionStatus: document.getElementById("registrationActionStatus"),
 };
 
 const STORAGE_KEYS = {
@@ -190,6 +229,25 @@ async function chatApi(path, options = {}) {
   return data;
 }
 
+async function registrationApi(path, options = {}) {
+  const response = await fetch(`/api/v1/registrations${path}`, {
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+    ...options,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (response.status === 401) {
+      showAuthGate("Your session expired or login is required. Please sign in again.");
+    }
+    throw new Error(data.detail || `Request failed with status ${response.status}`);
+  }
+  return data;
+}
+
 function showAuthGate(message) {
   state.authenticated = false;
   el.authGate.classList.remove("hidden");
@@ -216,15 +274,27 @@ function setCurrentSource(path) {
 function switchView(view) {
   state.activeView = view;
   el.learningView.classList.toggle("hidden", view !== "learning");
+  el.messageDumpView.classList.toggle("hidden", view !== "dumps");
+  el.registrationsView.classList.toggle("hidden", view !== "registrations");
   el.explorerView.classList.toggle("hidden", view !== "explorer");
-  el.learningTab.classList.toggle("is-active", view === "learning");
-  el.explorerTab.classList.toggle("is-active", view === "explorer");
-  el.learningTab.classList.toggle("action-primary", view === "learning");
-  el.learningTab.classList.toggle("action-secondary", view !== "learning");
-  el.explorerTab.classList.toggle("action-primary", view === "explorer");
-  el.explorerTab.classList.toggle("action-secondary", view !== "explorer");
-  el.learningTab.setAttribute("aria-selected", view === "learning" ? "true" : "false");
-  el.explorerTab.setAttribute("aria-selected", view === "explorer" ? "true" : "false");
+  const tabs = [
+    [el.learningTab, "learning"],
+    [el.dumpTab, "dumps"],
+    [el.registrationsTab, "registrations"],
+    [el.explorerTab, "explorer"],
+  ];
+  tabs.forEach(([tab, tabView]) => {
+    tab.classList.toggle("is-active", view === tabView);
+    tab.classList.toggle("action-primary", view === tabView);
+    tab.classList.toggle("action-secondary", view !== tabView);
+    tab.setAttribute("aria-selected", view === tabView ? "true" : "false");
+  });
+  if (view === "dumps" && state.messageDumps.length === 0) {
+    loadMessageDumps().catch(showError);
+  }
+  if (view === "registrations" && state.registrations.length === 0) {
+    loadRegistrations().catch(showError);
+  }
   if (view === "explorer" && state.billingImportScopes.length === 0) {
     loadBillingImportScopes().catch(showError);
   }
@@ -354,6 +424,247 @@ function renderLearningCandidates(item) {
          .join("")}</div>`
     : "";
   el.learningCandidates.innerHTML = `<div class="space-y-3">${candidateHtml}</div>${entityHtml}`;
+}
+
+function selectedDump() {
+  return state.messageDumps.find((item) => item.id === state.selectedDumpId) || null;
+}
+
+function renderMessageDumps() {
+  el.dumpCount.textContent = `${state.messageDumps.length} item(s)`;
+  el.dumpList.innerHTML = state.messageDumps.length
+    ? state.messageDumps
+        .map((item) => {
+          const selected = item.id === state.selectedDumpId;
+          const confidence = Math.round(Number(item.confidence || 0) * 100);
+          return `
+            <button class="learning-card w-full text-left p-4 ${selected ? "is-selected" : ""}" data-dump-id="${item.id}">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="line-clamp-2 text-sm font-semibold text-white">${escapeHtml(item.message_text)}</div>
+                  <div class="mt-2 text-xs text-slate-400">${escapeHtml(item.sender_name || item.sender_number || "Unknown sender")}</div>
+                </div>
+                <span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-300">${escapeHtml(item.status)}</span>
+              </div>
+              <div class="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+                <span>${escapeHtml(item.reason)}</span>
+                <span>${escapeHtml(item.detected_intent || "unknown")} ${confidence}%</span>
+                <span>${escapeHtml(item.created_at)}</span>
+              </div>
+            </button>
+          `;
+        })
+        .join("")
+    : `<div class="p-5 text-sm text-slate-400">No message dumps found for this filter.</div>`;
+}
+
+function renderMessageDumpDetail() {
+  const item = selectedDump();
+  if (!item) {
+    el.dumpDetailTitle.textContent = "Select a dump";
+    el.dumpMeta.textContent = "Pick a message dump to review the customer text and bot reply.";
+    el.dumpStatusBadge.textContent = "Waiting";
+    el.dumpStatusBadge.className = "status-pill status-idle";
+    el.dumpMessageBox.textContent = "No dump selected.";
+    el.dumpBotBox.textContent = "No dump selected.";
+    el.dumpNotesInput.value = "";
+    el.dumpActionStatus.textContent = "Select a dump to begin.";
+    return;
+  }
+
+  el.dumpDetailTitle.textContent = `Dump #${item.id}`;
+  el.dumpMeta.textContent = `${item.client_name} | ${item.device_identifier} | ${item.created_at}`;
+  el.dumpStatusBadge.textContent = item.status;
+  el.dumpStatusBadge.className =
+    "status-pill " + (item.status === "pending" ? "status-loading" : item.status === "reviewed" ? "status-success" : "status-idle");
+  el.dumpMessageBox.textContent = item.message_text || "-";
+  el.dumpBotBox.textContent = item.bot_response || "-";
+  el.dumpNotesInput.value = item.reviewer_notes || "";
+  el.dumpActionStatus.textContent = `${item.reason} | ${item.detected_intent || "unknown"} (${Math.round(Number(item.confidence || 0) * 100)}%)`;
+}
+
+async function loadMessageDumps() {
+  const status = el.dumpStatusFilter.value || "pending";
+  const limit = Number.parseInt(el.dumpLimitInput.value, 10) || 100;
+  el.dumpActionStatus.textContent = "Loading message dumps...";
+  const data = await registrationApi(`/admin/message-dumps?status=${encodeURIComponent(status)}&limit=${limit}`);
+  state.messageDumps = data.items || [];
+  if (!state.messageDumps.some((item) => item.id === state.selectedDumpId)) {
+    state.selectedDumpId = state.messageDumps[0]?.id || null;
+  }
+  renderMessageDumps();
+  renderMessageDumpDetail();
+  el.dumpActionStatus.textContent = state.messageDumps.length ? "Message dumps loaded." : "No dumps for this filter.";
+}
+
+async function reviewSelectedDump(nextStatus) {
+  const item = selectedDump();
+  if (!item) {
+    el.dumpActionStatus.textContent = "Select a dump first.";
+    return;
+  }
+  el.dumpActionStatus.textContent = "Saving review...";
+  const data = await registrationApi(`/admin/message-dumps/${item.id}`, {
+    method: "POST",
+    body: JSON.stringify({
+      status: nextStatus,
+      reviewer_notes: el.dumpNotesInput.value.trim() || null,
+    }),
+  });
+  const updated = data.item;
+  state.messageDumps = state.messageDumps.map((current) => (current.id === updated.id ? updated : current));
+  renderMessageDumps();
+  renderMessageDumpDetail();
+  el.dumpActionStatus.textContent = "Review saved.";
+}
+
+function selectedRegistration() {
+  return state.registrations.find((item) => item.id === state.selectedRegistrationId) || null;
+}
+
+function renderRegistrations() {
+  el.registrationsCount.textContent = `${state.registrations.length} item(s)`;
+  el.registrationsList.innerHTML = state.registrations.length
+    ? state.registrations
+        .map((item) => {
+          const selected = item.id === state.selectedRegistrationId;
+          return `
+            <button class="learning-card w-full text-left p-4 ${selected ? "is-selected" : ""}" data-registration-id="${item.id}">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="line-clamp-2 text-sm font-semibold text-white">${escapeHtml(item.name || item.default_name || item.sender_name || item.sender_number)}</div>
+                  <div class="mt-2 text-xs text-slate-400">${escapeHtml(item.phone || item.default_phone || item.sender_number || "-")}</div>
+                </div>
+                <span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-300">${escapeHtml(item.status)}</span>
+              </div>
+              <div class="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+                <span>${escapeHtml(item.customer_code || "No ID")}</span>
+                <span>${escapeHtml(item.client_name || "-")}</span>
+                <span>${escapeHtml(item.updated_at)}</span>
+              </div>
+            </button>
+          `;
+        })
+        .join("")
+    : `<div class="p-5 text-sm text-slate-400">No registrations found for this filter.</div>`;
+}
+
+function renderRegistrationDetail() {
+  const item = selectedRegistration();
+  if (!item) {
+    el.registrationDetailTitle.textContent = "Select a registration";
+    el.registrationMeta.textContent = "Approve, mark paid, or activate a selected customer.";
+    el.registrationStatusBadge.textContent = "Waiting";
+    el.registrationStatusBadge.className = "status-pill status-idle";
+    el.registrationSummaryBox.textContent = "No registration selected.";
+    el.registrationActionStatus.textContent = "Select a registration to begin.";
+    return;
+  }
+
+  const latestPayment = (item.payments || [])[0] || {};
+  el.registrationDetailTitle.textContent = `Registration #${item.id}`;
+  el.registrationMeta.textContent = `${item.client_name} | ${item.device_identifier} | ${item.updated_at}`;
+  el.registrationStatusBadge.textContent = item.status;
+  el.registrationStatusBadge.className =
+    "status-pill " + (item.status === "active" ? "status-success" : item.status === "registered" ? "status-loading" : "status-idle");
+  el.registrationSummaryBox.innerHTML = `
+    <div class="grid gap-2 md:grid-cols-2">
+      <div><span class="section-label">Customer ID</span><div>${escapeHtml(item.customer_code || "-")}</div></div>
+      <div><span class="section-label">Name</span><div>${escapeHtml(item.name || item.default_name || "-")}</div></div>
+      <div><span class="section-label">WA</span><div>${escapeHtml(item.phone || item.default_phone || item.sender_number || "-")}</div></div>
+      <div><span class="section-label">Email</span><div>${escapeHtml(item.email || "-")}</div></div>
+      <div class="md:col-span-2"><span class="section-label">Address</span><div>${escapeHtml(item.address || "-")}</div></div>
+      <div class="md:col-span-2"><span class="section-label">Maps</span><div>${escapeHtml(item.maps_link || "-")}</div></div>
+      <div><span class="section-label">Virtual Account</span><div>${escapeHtml(item.virtual_account || "-")}</div></div>
+      <div><span class="section-label">Latest Payment</span><div>${escapeHtml(latestPayment.status || "-")} ${latestPayment.amount ? `| Rp ${Number(latestPayment.amount).toLocaleString("id-ID")}` : ""}</div></div>
+      <div class="md:col-span-2"><span class="section-label">Payment URL</span><div>${escapeHtml(item.payment_url || "-")}</div></div>
+    </div>
+  `;
+  el.approveVirtualAccountInput.value = item.virtual_account || "";
+  if (latestPayment.amount) {
+    el.approveAmountInput.value = latestPayment.amount;
+  }
+  if (item.payment_method) {
+    el.approvePaymentMethodSelect.value = item.payment_method;
+  }
+  el.registrationActionStatus.textContent = "Choose an action for this registration.";
+}
+
+async function loadRegistrations() {
+  const status = el.registrationStatusFilter.value || "registered";
+  const limit = Number.parseInt(el.registrationLimitInput.value, 10) || 100;
+  el.registrationActionStatus.textContent = "Loading registrations...";
+  const data = await registrationApi(`/admin/items?status=${encodeURIComponent(status)}&limit=${limit}`);
+  state.registrations = data.items || [];
+  if (!state.registrations.some((item) => item.id === state.selectedRegistrationId)) {
+    state.selectedRegistrationId = state.registrations[0]?.id || null;
+  }
+  renderRegistrations();
+  renderRegistrationDetail();
+  el.registrationActionStatus.textContent = state.registrations.length ? "Registrations loaded." : "No registrations for this filter.";
+}
+
+function updateRegistrationInState(updated) {
+  const exists = state.registrations.some((item) => item.id === updated.id);
+  state.registrations = exists
+    ? state.registrations.map((current) => (current.id === updated.id ? updated : current))
+    : [updated, ...state.registrations];
+  state.selectedRegistrationId = updated.id;
+  renderRegistrations();
+  renderRegistrationDetail();
+}
+
+async function approveSelectedRegistration() {
+  const item = selectedRegistration();
+  if (!item) {
+    el.registrationActionStatus.textContent = "Select a registration first.";
+    return;
+  }
+  el.registrationActionStatus.textContent = "Approving registration...";
+  const data = await registrationApi(`/admin/${item.id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({
+      amount: Number.parseInt(el.approveAmountInput.value, 10) || 0,
+      payment_method: el.approvePaymentMethodSelect.value,
+      virtual_account: el.approveVirtualAccountInput.value.trim() || null,
+    }),
+  });
+  updateRegistrationInState(data.item);
+  el.registrationActionStatus.textContent = "Registration approved.";
+}
+
+async function markSelectedRegistrationPaid(method) {
+  const item = selectedRegistration();
+  if (!item) {
+    el.registrationActionStatus.textContent = "Select a registration first.";
+    return;
+  }
+  el.registrationActionStatus.textContent = "Saving payment...";
+  const data = await registrationApi(`/admin/${item.id}/payment`, {
+    method: "POST",
+    body: JSON.stringify({
+      payment_method: method,
+      amount: Number.parseInt(el.approveAmountInput.value, 10) || 0,
+      virtual_account: el.approveVirtualAccountInput.value.trim() || item.virtual_account || null,
+    }),
+  });
+  updateRegistrationInState(data.item);
+  el.registrationActionStatus.textContent = "Payment saved and technician notification processed.";
+}
+
+async function activateSelectedRegistration() {
+  const item = selectedRegistration();
+  if (!item) {
+    el.registrationActionStatus.textContent = "Select a registration first.";
+    return;
+  }
+  el.registrationActionStatus.textContent = "Activating customer...";
+  const data = await registrationApi(`/admin/${item.id}/activate`, {
+    method: "POST",
+    body: JSON.stringify({ notes: "Installation completed from SQLite Explorer." }),
+  });
+  updateRegistrationInState(data.item);
+  el.registrationActionStatus.textContent = "Customer activated.";
 }
 
 function renderBillingImportScopes() {
@@ -603,10 +914,20 @@ async function logoutDashboard() {
     state.learningItems = [];
     state.learningIntents = [];
     state.billingImportScopes = [];
+    state.messageDumps = [];
+    state.registrations = [];
     state.selectedLearningId = null;
+    state.selectedDumpId = null;
+    state.selectedRegistrationId = null;
     el.learningList.innerHTML = "";
     el.learningCount.textContent = "No queue loaded.";
     renderLearningDetail();
+    el.dumpList.innerHTML = "";
+    el.dumpCount.textContent = "No dumps loaded.";
+    renderMessageDumpDetail();
+    el.registrationsList.innerHTML = "";
+    el.registrationsCount.textContent = "No registrations loaded.";
+    renderRegistrationDetail();
     renderBillingImportScopes();
     setStatus("Ready", "idle");
     setConnectionStatus("Signed out. Enter the dashboard password to continue.");
@@ -888,6 +1209,16 @@ function bindEvents() {
     loadLearningQueue().catch(showError);
   });
 
+  el.dumpTab.addEventListener("click", () => {
+    switchView("dumps");
+    loadMessageDumps().catch(showError);
+  });
+
+  el.registrationsTab.addEventListener("click", () => {
+    switchView("registrations");
+    loadRegistrations().catch(showError);
+  });
+
   el.explorerTab.addEventListener("click", () => {
     switchView("explorer");
   });
@@ -898,6 +1229,72 @@ function bindEvents() {
 
   el.refreshLearningButton.addEventListener("click", () => {
     loadLearningQueue().catch(showError);
+  });
+
+  el.refreshDumpButton.addEventListener("click", () => {
+    loadMessageDumps().catch(showError);
+  });
+
+  el.dumpStatusFilter.addEventListener("change", () => {
+    state.selectedDumpId = null;
+    loadMessageDumps().catch(showError);
+  });
+
+  el.dumpLimitInput.addEventListener("change", () => {
+    loadMessageDumps().catch(showError);
+  });
+
+  el.dumpList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-dump-id]");
+    if (!button) return;
+    state.selectedDumpId = Number.parseInt(button.dataset.dumpId, 10);
+    renderMessageDumps();
+    renderMessageDumpDetail();
+  });
+
+  el.markDumpReviewedButton.addEventListener("click", () => {
+    reviewSelectedDump("reviewed").catch(showError);
+  });
+
+  el.markDumpIgnoredButton.addEventListener("click", () => {
+    reviewSelectedDump("ignored").catch(showError);
+  });
+
+  el.refreshRegistrationsButton.addEventListener("click", () => {
+    loadRegistrations().catch(showError);
+  });
+
+  el.registrationStatusFilter.addEventListener("change", () => {
+    state.selectedRegistrationId = null;
+    loadRegistrations().catch(showError);
+  });
+
+  el.registrationLimitInput.addEventListener("change", () => {
+    loadRegistrations().catch(showError);
+  });
+
+  el.registrationsList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-registration-id]");
+    if (!button) return;
+    state.selectedRegistrationId = Number.parseInt(button.dataset.registrationId, 10);
+    renderRegistrations();
+    renderRegistrationDetail();
+  });
+
+  el.approveRegistrationButton.addEventListener("click", () => {
+    approveSelectedRegistration().catch(showError);
+  });
+
+  el.cashPaymentButton.addEventListener("click", () => {
+    markSelectedRegistrationPaid("cash").catch(showError);
+  });
+
+  el.bankPaymentButton.addEventListener("click", () => {
+    markSelectedRegistrationPaid("bank_transfer").catch(showError);
+  });
+
+  el.activateRegistrationButton.addEventListener("click", () => {
+    activateSelectedRegistration().catch(showError);
   });
 
   el.billingImportClientSelect.addEventListener("change", renderBillingImportScopes);

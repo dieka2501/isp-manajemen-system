@@ -78,6 +78,20 @@ class Settings:
         "BILLING_SAMPLE_XLSX_PATH",
         PROJECT_ROOT / "contoh-list-billing.xlsx",
     )
+    public_base_url: str = os.getenv("PUBLIC_BASE_URL", os.getenv("APP_PUBLIC_BASE_URL", ""))
+    registration_offer_message_threshold: int = int(
+        os.getenv("REGISTRATION_OFFER_MESSAGE_THRESHOLD", "5")
+    )
+    registration_default_payment_amount: int = int(
+        os.getenv("REGISTRATION_DEFAULT_PAYMENT_AMOUNT", "0")
+    )
+    virtual_account_prefix: str = os.getenv("VIRTUAL_ACCOUNT_PREFIX", "ISP")
+    technician_whatsapp_numbers: str = os.getenv("TECHNICIAN_WHATSAPP_NUMBERS", "")
+    payment_webhook_secret: str = os.getenv("PAYMENT_WEBHOOK_SECRET", "")
+    payment_proof_upload_dir: str = _project_path_from_env(
+        "PAYMENT_PROOF_UPLOAD_DIR",
+        BASE_DIR / "data" / "payment_proofs",
+    )
 
 
 @lru_cache
