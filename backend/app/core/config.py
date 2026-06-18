@@ -55,7 +55,7 @@ class Settings:
         "GIT_BRANCH",
     )
     app_debug: bool = os.getenv("APP_DEBUG", "true").lower() == "true"
-    app_host: str = os.getenv("APP_HOST", "127.0.0.1")
+    app_host: str = os.getenv("APP_HOST", "127.0.0.1:8000")
     app_port: int = int(os.getenv("PORT", os.getenv("APP_PORT", "8000")))
     api_v1_prefix: str = os.getenv("API_V1_PREFIX", "/api/v1")
     fonnte_api_url: str = os.getenv("FONNTE_API_URL", "https://api.fonnte.com/send")

@@ -90,6 +90,7 @@ https://domain-anda/api/v1/webhooks/fonnte?secret=rahasia-anda
 Environment variable yang perlu diisi:
 
 ```bash
+APP_HOST=127.0.0.1:8000
 FONNTE_WEBHOOK_SECRET=rahasia-anda
 CHAT_DATABASE_PATH=/absolute/path/chat.sqlite3
 OPENAI_API_KEY=
@@ -102,6 +103,11 @@ CLIENT_DASHBOARD_SEED_EMAIL=admin@isp.local
 CLIENT_DASHBOARD_SEED_PASSWORD=password
 BILLING_SAMPLE_XLSX_PATH=contoh-list-billing.xlsx
 ```
+
+`APP_HOST` dipakai untuk membentuk link publik seperti form pendaftaran dan
+pembayaran. Isi host beserta port hanya untuk lokal, misalnya
+`127.0.0.1:8000`; di production cukup isi domain production tanpa `APP_PORT`,
+misalnya `isp.example.com` atau `https://isp.example.com`.
 
 Database SQLite akan otomatis dibuat saat app start dan menyimpan:
 - `accounts`
