@@ -30,6 +30,7 @@ app = FastAPI(
 if FRONTEND_DIR.exists():
     app.mount("/sqlexplorer-assets", StaticFiles(directory=FRONTEND_DIR), name="sqlexplorer-assets")
     app.mount("/dashboard-assets", StaticFiles(directory=FRONTEND_DIR), name="dashboard-assets")
+    app.mount("/registration-assets", StaticFiles(directory=FRONTEND_DIR), name="registration-assets")
 
 
 @app.get("/health", tags=["system"])
@@ -63,6 +64,28 @@ def dashboard() -> FileResponse:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="SQLite explorer frontend is not available.",
+        )
+    return FileResponse(index_file)
+
+
+@app.get("/register/{token}", include_in_schema=False)
+def registration_form(token: str) -> FileResponse:
+    index_file = FRONTEND_DIR / "registration.html"
+    if not index_file.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Registration frontend is not available.",
+        )
+    return FileResponse(index_file)
+
+
+@app.get("/payment/{token}", include_in_schema=False)
+def payment_form(token: str) -> FileResponse:
+    index_file = FRONTEND_DIR / "payment.html"
+    if not index_file.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Payment frontend is not available.",
         )
     return FileResponse(index_file)
 

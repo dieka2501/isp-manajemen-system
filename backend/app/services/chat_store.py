@@ -6,6 +6,7 @@ import secrets
 import sqlite3
 import hashlib
 import hmac
+import string
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -279,11 +280,15 @@ class SQLiteChatStore:
                     phone TEXT,
                     email TEXT,
                     address TEXT,
+                    maps_link TEXT,
                     area TEXT,
                     pppoe_username TEXT,
                     installation_date TEXT,
+                    virtual_account TEXT,
+                    payment_method TEXT,
+                    registration_token TEXT,
                     status TEXT NOT NULL DEFAULT 'active'
-                        CHECK(status IN ('active', 'inactive', 'suspended')),
+                        CHECK(status IN ('registered', 'approved', 'paid', 'active', 'inactive', 'suspended', 'rejected')),
                     metadata TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
@@ -291,6 +296,88 @@ class SQLiteChatStore:
                     FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE SET NULL,
                     FOREIGN KEY (package_id) REFERENCES internet_packages (id) ON DELETE SET NULL,
                     UNIQUE (client_id, customer_code)
+                );
+
+                CREATE TABLE IF NOT EXISTS customer_registrations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
+                    conversation_id INTEGER,
+                    customer_id INTEGER,
+                    token TEXT NOT NULL UNIQUE,
+                    sender_number TEXT NOT NULL,
+                    sender_name TEXT,
+                    default_name TEXT,
+                    default_phone TEXT,
+                    name TEXT,
+                    phone TEXT,
+                    email TEXT,
+                    address TEXT,
+                    maps_link TEXT,
+                    status TEXT NOT NULL DEFAULT 'draft'
+                        CHECK(status IN ('draft', 'registered', 'approved', 'paid', 'active', 'rejected')),
+                    registration_url TEXT,
+                    payment_url TEXT,
+                    submitted_at TEXT,
+                    approved_at TEXT,
+                    paid_at TEXT,
+                    activated_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
+                    FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE SET NULL,
+                    FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE SET NULL,
+                    UNIQUE (client_id, device_id, conversation_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS payment_confirmations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
+                    registration_id INTEGER NOT NULL,
+                    customer_id INTEGER NOT NULL,
+                    payment_method TEXT NOT NULL
+                        CHECK(payment_method IN ('cash', 'virtual_account', 'bank_transfer')),
+                    status TEXT NOT NULL DEFAULT 'pending'
+                        CHECK(status IN ('pending', 'verified', 'rejected')),
+                    amount INTEGER NOT NULL DEFAULT 0,
+                    reference_number TEXT,
+                    virtual_account TEXT,
+                    proof_file_path TEXT,
+                    proof_file_name TEXT,
+                    proof_content_type TEXT,
+                    proof_uploaded_at TEXT,
+                    provider_payload TEXT NOT NULL DEFAULT '{}',
+                    notes TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
+                    FOREIGN KEY (registration_id) REFERENCES customer_registrations (id) ON DELETE CASCADE,
+                    FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS technician_installation_tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
+                    registration_id INTEGER NOT NULL,
+                    customer_id INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending'
+                        CHECK(status IN ('pending', 'notified', 'scheduled', 'completed', 'cancelled')),
+                    notification_status TEXT,
+                    technician_contact TEXT,
+                    scheduled_at TEXT,
+                    completed_at TEXT,
+                    notes TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
+                    FOREIGN KEY (registration_id) REFERENCES customer_registrations (id) ON DELETE CASCADE,
+                    FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE CASCADE,
+                    UNIQUE (client_id, customer_id)
                 );
 
                 CREATE TABLE IF NOT EXISTS billing_records (
@@ -533,6 +620,32 @@ class SQLiteChatStore:
                     FOREIGN KEY (message_id) REFERENCES messages (id) ON DELETE SET NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS misaligned_message_dumps (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL,
+                    conversation_id INTEGER NOT NULL,
+                    message_id INTEGER NOT NULL UNIQUE,
+                    sender_number TEXT NOT NULL,
+                    sender_name TEXT,
+                    message_text TEXT NOT NULL,
+                    bot_response TEXT,
+                    detected_intent TEXT,
+                    confidence REAL,
+                    reason TEXT NOT NULL,
+                    analysis_json TEXT NOT NULL DEFAULT '{}',
+                    status TEXT NOT NULL DEFAULT 'pending'
+                        CHECK(status IN ('pending', 'reviewed', 'ignored')),
+                    reviewer_notes TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    resolved_at TEXT,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                    FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE CASCADE,
+                    FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE,
+                    FOREIGN KEY (message_id) REFERENCES messages (id) ON DELETE CASCADE
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_clients_account_id ON clients (account_id);
                 CREATE INDEX IF NOT EXISTS idx_devices_client_id ON devices (client_id);
                 CREATE INDEX IF NOT EXISTS idx_conversations_client_id ON conversations (client_id);
@@ -541,6 +654,12 @@ class SQLiteChatStore:
                 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages (created_at);
                 CREATE INDEX IF NOT EXISTS idx_customers_client_status
                     ON customers (client_id, status);
+                CREATE INDEX IF NOT EXISTS idx_customer_registrations_status
+                    ON customer_registrations (client_id, status, created_at);
+                CREATE INDEX IF NOT EXISTS idx_payment_confirmations_status
+                    ON payment_confirmations (client_id, status, created_at);
+                CREATE INDEX IF NOT EXISTS idx_technician_tasks_status
+                    ON technician_installation_tasks (client_id, status, created_at);
                 CREATE INDEX IF NOT EXISTS idx_billing_records_client_status
                     ON billing_records (client_id, status);
                 CREATE INDEX IF NOT EXISTS idx_billing_records_customer
@@ -571,6 +690,10 @@ class SQLiteChatStore:
                     ON unprocessed_questions (client_id, status);
                 CREATE INDEX IF NOT EXISTS idx_conversation_logs_conversation
                     ON conversation_logs (conversation_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_misaligned_message_dumps_status
+                    ON misaligned_message_dumps (status, created_at);
+                CREATE INDEX IF NOT EXISTS idx_misaligned_message_dumps_scope
+                    ON misaligned_message_dumps (client_id, device_id, status);
                 """
             )
             self._ensure_schema_migrations(conn)
@@ -1417,6 +1540,11 @@ class SQLiteChatStore:
         self._ensure_column(conn, "clients", "pic_name", "TEXT")
         self._ensure_column(conn, "clients", "phone", "TEXT")
         self._ensure_column(conn, "clients", "is_active", "INTEGER NOT NULL DEFAULT 1")
+        self._ensure_column(conn, "customers", "maps_link", "TEXT")
+        self._ensure_column(conn, "customers", "virtual_account", "TEXT")
+        self._ensure_column(conn, "customers", "payment_method", "TEXT")
+        self._ensure_column(conn, "customers", "registration_token", "TEXT")
+        self._ensure_customers_registration_statuses(conn)
         conn.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS uq_clients_email
@@ -1441,6 +1569,10 @@ class SQLiteChatStore:
             "conversation_states",
             "unprocessed_questions",
             "conversation_logs",
+            "customer_registrations",
+            "payment_confirmations",
+            "technician_installation_tasks",
+            "misaligned_message_dumps",
         )
         for table_name in scoped_tables:
             self._ensure_column(conn, table_name, "client_id", "INTEGER")
@@ -1699,6 +1831,14 @@ class SQLiteChatStore:
                 ON unprocessed_questions (client_id, device_id, status);
             CREATE INDEX IF NOT EXISTS idx_conversation_logs_scope
                 ON conversation_logs (client_id, device_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_customer_registrations_scope
+                ON customer_registrations (client_id, device_id, status);
+            CREATE INDEX IF NOT EXISTS idx_payment_confirmations_scope
+                ON payment_confirmations (client_id, device_id, status);
+            CREATE INDEX IF NOT EXISTS idx_technician_installation_tasks_scope
+                ON technician_installation_tasks (client_id, device_id, status);
+            CREATE INDEX IF NOT EXISTS idx_misaligned_message_dumps_scope
+                ON misaligned_message_dumps (client_id, device_id, status);
             """
         )
 
@@ -1772,6 +1912,104 @@ class SQLiteChatStore:
         }
         if column_name not in columns:
             conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
+
+    def _ensure_customers_registration_statuses(self, conn: sqlite3.Connection) -> None:
+        row = conn.execute(
+            """
+            SELECT sql
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'customers'
+            """
+        ).fetchone()
+        table_sql = str(row["sql"] or "") if row else ""
+        if all(status in table_sql for status in ("registered", "approved", "paid", "rejected")):
+            return
+
+        legacy_table = "customers__registration_status_migration"
+        existing_columns = {
+            str(column["name"])
+            for column in conn.execute("PRAGMA table_info(customers)").fetchall()
+        }
+        if not existing_columns:
+            return
+
+        desired_columns = (
+            "id",
+            "client_id",
+            "device_id",
+            "package_id",
+            "customer_code",
+            "name",
+            "phone",
+            "email",
+            "address",
+            "maps_link",
+            "area",
+            "pppoe_username",
+            "installation_date",
+            "virtual_account",
+            "payment_method",
+            "registration_token",
+            "status",
+            "metadata",
+            "created_at",
+            "updated_at",
+        )
+        copy_columns = [
+            column for column in desired_columns if column in existing_columns
+        ]
+        column_sql = ", ".join(copy_columns)
+        select_sql = ", ".join(
+            "CASE WHEN status IN ('registered', 'approved', 'paid', 'active', 'inactive', 'suspended', 'rejected') "
+            "THEN status ELSE 'active' END"
+            if column == "status"
+            else column
+            for column in copy_columns
+        )
+
+        conn.execute(f"DROP TABLE IF EXISTS {legacy_table}")
+        conn.execute("PRAGMA legacy_alter_table = ON")
+        conn.execute(f"ALTER TABLE customers RENAME TO {legacy_table}")
+        conn.execute(
+            """
+            CREATE TABLE customers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id INTEGER NOT NULL,
+                device_id INTEGER,
+                package_id INTEGER,
+                customer_code TEXT,
+                name TEXT NOT NULL,
+                phone TEXT,
+                email TEXT,
+                address TEXT,
+                maps_link TEXT,
+                area TEXT,
+                pppoe_username TEXT,
+                installation_date TEXT,
+                virtual_account TEXT,
+                payment_method TEXT,
+                registration_token TEXT,
+                status TEXT NOT NULL DEFAULT 'active'
+                    CHECK(status IN ('registered', 'approved', 'paid', 'active', 'inactive', 'suspended', 'rejected')),
+                metadata TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE,
+                FOREIGN KEY (device_id) REFERENCES devices (id) ON DELETE SET NULL,
+                FOREIGN KEY (package_id) REFERENCES internet_packages (id) ON DELETE SET NULL,
+                UNIQUE (client_id, customer_code)
+            )
+            """
+        )
+        conn.execute("PRAGMA legacy_alter_table = OFF")
+        conn.execute(
+            f"""
+            INSERT OR IGNORE INTO customers ({column_sql})
+            SELECT {select_sql}
+            FROM {legacy_table}
+            """
+        )
+        conn.execute(f"DROP TABLE {legacy_table}")
 
     def list_accounts(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
@@ -2065,7 +2303,16 @@ class SQLiteChatStore:
         limit: int = 200,
     ) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 500))
-        valid_statuses = {"active", "inactive", "suspended", "all"}
+        valid_statuses = {
+            "registered",
+            "approved",
+            "paid",
+            "active",
+            "inactive",
+            "suspended",
+            "rejected",
+            "all",
+        }
         if status_filter not in valid_statuses:
             raise ValueError("Invalid customer status filter.")
 
@@ -2108,9 +2355,13 @@ class SQLiteChatStore:
                     cu.phone,
                     cu.email,
                     cu.address,
+                    cu.maps_link,
                     cu.area,
                     cu.pppoe_username,
                     cu.installation_date,
+                    cu.virtual_account,
+                    cu.payment_method,
+                    cu.registration_token,
                     cu.status,
                     cu.metadata,
                     cu.created_at,
@@ -2955,6 +3206,731 @@ class SQLiteChatStore:
                 ),
             )
 
+    def count_incoming_messages(self, conversation_id: int) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM messages
+                WHERE conversation_id = ? AND direction = 'incoming'
+                """,
+                (conversation_id,),
+            ).fetchone()
+        return int(row["total"] or 0) if row else 0
+
+    def get_or_create_customer_registration_invitation(
+        self,
+        stored_message: StoredIncomingMessage,
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        with self._connect() as conn:
+            existing = self._get_registration_row(
+                conn,
+                conversation_id=stored_message.conversation_id,
+            )
+            if existing:
+                item = self._decode_registration_row(conn, dict(existing))
+                item["created"] = False
+                return item
+
+            token = self._new_public_token()
+            registration_url, payment_url = self._registration_public_urls(token)
+            cursor = conn.execute(
+                """
+                INSERT INTO customer_registrations (
+                    client_id,
+                    device_id,
+                    conversation_id,
+                    token,
+                    sender_number,
+                    sender_name,
+                    default_name,
+                    default_phone,
+                    registration_url,
+                    payment_url,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    stored_message.device.client_id,
+                    stored_message.device.device_id,
+                    stored_message.conversation_id,
+                    token,
+                    stored_message.sender_number,
+                    stored_message.sender_name,
+                    stored_message.sender_name,
+                    stored_message.sender_number,
+                    registration_url,
+                    payment_url,
+                    now,
+                    now,
+                ),
+            )
+            row = self._get_registration_row(conn, registration_id=int(cursor.lastrowid))
+            item = self._decode_registration_row(conn, dict(row)) if row else {}
+        item["created"] = True
+        return item
+
+    def get_customer_registration_by_token(self, token: str) -> dict[str, Any]:
+        with self._connect() as conn:
+            row = self._get_registration_row(conn, token=token)
+            if not row:
+                raise ValueError("Registration link was not found.")
+            return self._decode_registration_row(conn, dict(row))
+
+    def submit_customer_registration(
+        self,
+        *,
+        token: str,
+        name: str,
+        phone: str,
+        email: str | None,
+        address: str,
+        maps_link: str | None,
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        with self._connect() as conn:
+            registration = self._get_registration_row(conn, token=token)
+            if not registration:
+                raise ValueError("Registration link was not found.")
+            if str(registration["status"]) not in {"draft", "registered"}:
+                raise ValueError("Registration can no longer be edited after approval.")
+
+            metadata = {
+                "source": "public_registration_form",
+                "registration_id": int(registration["id"]),
+                "conversation_id": registration["conversation_id"],
+            }
+            customer_id = registration["customer_id"]
+            if customer_id:
+                conn.execute(
+                    """
+                    UPDATE customers
+                    SET
+                        device_id = ?,
+                        name = ?,
+                        phone = ?,
+                        email = ?,
+                        address = ?,
+                        maps_link = ?,
+                        registration_token = ?,
+                        status = 'registered',
+                        metadata = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        registration["device_id"],
+                        name.strip(),
+                        phone.strip(),
+                        _safe_text(email),
+                        address.strip(),
+                        _safe_text(maps_link),
+                        token,
+                        json.dumps(metadata, ensure_ascii=True),
+                        now,
+                        customer_id,
+                    ),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO customers (
+                        client_id,
+                        device_id,
+                        name,
+                        phone,
+                        email,
+                        address,
+                        maps_link,
+                        registration_token,
+                        status,
+                        metadata,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'registered', ?, ?, ?)
+                    """,
+                    (
+                        registration["client_id"],
+                        registration["device_id"],
+                        name.strip(),
+                        phone.strip(),
+                        _safe_text(email),
+                        address.strip(),
+                        _safe_text(maps_link),
+                        token,
+                        json.dumps(metadata, ensure_ascii=True),
+                        now,
+                        now,
+                    ),
+                )
+                customer_id = int(cursor.lastrowid)
+
+            conn.execute(
+                """
+                UPDATE customer_registrations
+                SET
+                    customer_id = ?,
+                    name = ?,
+                    phone = ?,
+                    email = ?,
+                    address = ?,
+                    maps_link = ?,
+                    status = 'registered',
+                    submitted_at = COALESCE(submitted_at, ?),
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    customer_id,
+                    name.strip(),
+                    phone.strip(),
+                    _safe_text(email),
+                    address.strip(),
+                    _safe_text(maps_link),
+                    now,
+                    now,
+                    registration["id"],
+                ),
+            )
+            row = self._get_registration_row(conn, registration_id=int(registration["id"]))
+            return self._decode_registration_row(conn, dict(row))
+
+    def list_customer_registrations(
+        self,
+        *,
+        status_filter: str = "registered",
+        limit: int = 100,
+        client_id: int | None = None,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 200))
+        valid_statuses = {"draft", "registered", "approved", "paid", "active", "rejected", "all"}
+        if status_filter not in valid_statuses:
+            raise ValueError("Invalid registration status filter.")
+
+        filters = []
+        params: list[Any] = []
+        if status_filter != "all":
+            filters.append("cr.status = ?")
+            params.append(status_filter)
+        if client_id is not None:
+            filters.append("cr.client_id = ?")
+            params.append(client_id)
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                {self._registration_select_sql()}
+                {where_clause}
+                ORDER BY cr.updated_at DESC, cr.id DESC
+                LIMIT ?
+                """,
+                (*params, safe_limit),
+            ).fetchall()
+            return [self._decode_registration_row(conn, dict(row)) for row in rows]
+
+    def get_customer_registration(self, registration_id: int) -> dict[str, Any]:
+        with self._connect() as conn:
+            row = self._get_registration_row(conn, registration_id=registration_id)
+            if not row:
+                raise ValueError("Registration was not found.")
+            return self._decode_registration_row(conn, dict(row))
+
+    def approve_customer_registration(
+        self,
+        *,
+        registration_id: int,
+        amount: int | None = None,
+        payment_method: str = "virtual_account",
+        virtual_account: str | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        normalized_method = payment_method.strip().lower()
+        if normalized_method not in {"cash", "virtual_account", "bank_transfer"}:
+            raise ValueError("payment_method must be cash, virtual_account, or bank_transfer.")
+        safe_amount = max(0, int(amount if amount is not None else self.settings.registration_default_payment_amount))
+        now = _utc_now()
+        with self._connect() as conn:
+            registration = self._get_registration_row(conn, registration_id=registration_id)
+            if not registration:
+                raise ValueError("Registration was not found.")
+            if not registration["customer_id"]:
+                raise ValueError("Registration has not been submitted by the customer.")
+            customer_id = int(registration["customer_id"])
+            customer = conn.execute(
+                "SELECT customer_code FROM customers WHERE id = ?",
+                (customer_id,),
+            ).fetchone()
+            if not customer:
+                raise ValueError("Registered customer was not found.")
+            customer_code = str(customer["customer_code"] or "").strip()
+            if not customer_code:
+                customer_code = self._generate_customer_code(conn, int(registration["client_id"]))
+            resolved_virtual_account = (
+                virtual_account.strip()
+                if virtual_account and virtual_account.strip()
+                else self._generate_virtual_account(customer_code)
+            )
+
+            conn.execute(
+                """
+                UPDATE customers
+                SET
+                    customer_code = ?,
+                    virtual_account = ?,
+                    payment_method = ?,
+                    status = 'approved',
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    customer_code,
+                    resolved_virtual_account,
+                    normalized_method,
+                    now,
+                    customer_id,
+                ),
+            )
+            conn.execute(
+                """
+                UPDATE customer_registrations
+                SET status = 'approved', approved_at = COALESCE(approved_at, ?), updated_at = ?
+                WHERE id = ?
+                """,
+                (now, now, registration_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO payment_confirmations (
+                    client_id,
+                    device_id,
+                    registration_id,
+                    customer_id,
+                    payment_method,
+                    status,
+                    amount,
+                    virtual_account,
+                    notes,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
+                """,
+                (
+                    registration["client_id"],
+                    registration["device_id"],
+                    registration_id,
+                    customer_id,
+                    normalized_method,
+                    safe_amount,
+                    resolved_virtual_account,
+                    notes,
+                    now,
+                    now,
+                ),
+            )
+            row = self._get_registration_row(conn, registration_id=registration_id)
+            return self._decode_registration_row(conn, dict(row))
+
+    def save_payment_proof(
+        self,
+        *,
+        token: str,
+        amount: int,
+        reference_number: str | None,
+        proof_file_path: str,
+        proof_file_name: str,
+        proof_content_type: str | None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        with self._connect() as conn:
+            registration = self._get_registration_row(conn, token=token)
+            if not registration:
+                raise ValueError("Payment link was not found.")
+            if not registration["customer_id"]:
+                raise ValueError("Registration must be submitted before uploading payment proof.")
+            cursor = conn.execute(
+                """
+                INSERT INTO payment_confirmations (
+                    client_id,
+                    device_id,
+                    registration_id,
+                    customer_id,
+                    payment_method,
+                    status,
+                    amount,
+                    reference_number,
+                    proof_file_path,
+                    proof_file_name,
+                    proof_content_type,
+                    proof_uploaded_at,
+                    notes,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, 'bank_transfer', 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    registration["client_id"],
+                    registration["device_id"],
+                    registration["id"],
+                    registration["customer_id"],
+                    max(0, amount),
+                    _safe_text(reference_number),
+                    proof_file_path,
+                    proof_file_name,
+                    _safe_text(proof_content_type),
+                    now,
+                    notes,
+                    now,
+                    now,
+                ),
+            )
+            row = self._get_payment_confirmation(conn, int(cursor.lastrowid))
+            return self._decode_payment_row(dict(row)) if row else {}
+
+    def record_registration_payment(
+        self,
+        *,
+        registration_id: int,
+        payment_method: str,
+        amount: int,
+        reference_number: str | None = None,
+        virtual_account: str | None = None,
+        provider_payload: dict[str, Any] | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        normalized_method = payment_method.strip().lower()
+        if normalized_method not in {"cash", "virtual_account", "bank_transfer"}:
+            raise ValueError("payment_method must be cash, virtual_account, or bank_transfer.")
+        now = _utc_now()
+        with self._connect() as conn:
+            registration = self._get_registration_row(conn, registration_id=registration_id)
+            if not registration:
+                raise ValueError("Registration was not found.")
+            if not registration["customer_id"]:
+                raise ValueError("Registration has no customer record.")
+            conn.execute(
+                """
+                INSERT INTO payment_confirmations (
+                    client_id,
+                    device_id,
+                    registration_id,
+                    customer_id,
+                    payment_method,
+                    status,
+                    amount,
+                    reference_number,
+                    virtual_account,
+                    provider_payload,
+                    notes,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, 'verified', ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    registration["client_id"],
+                    registration["device_id"],
+                    registration_id,
+                    registration["customer_id"],
+                    normalized_method,
+                    max(0, amount),
+                    _safe_text(reference_number),
+                    _safe_text(virtual_account),
+                    json.dumps(provider_payload or {}, ensure_ascii=True),
+                    notes,
+                    now,
+                    now,
+                ),
+            )
+            conn.execute(
+                """
+                UPDATE customers
+                SET status = 'paid', payment_method = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    normalized_method,
+                    now,
+                    registration["customer_id"],
+                ),
+            )
+            conn.execute(
+                """
+                UPDATE customer_registrations
+                SET status = 'paid', paid_at = COALESCE(paid_at, ?), updated_at = ?
+                WHERE id = ?
+                """,
+                (now, now, registration_id),
+            )
+            self._ensure_installation_task(conn, registration=dict(registration), now=now)
+            row = self._get_registration_row(conn, registration_id=registration_id)
+            return self._decode_registration_row(conn, dict(row))
+
+    def complete_customer_installation(
+        self,
+        *,
+        registration_id: int,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        with self._connect() as conn:
+            registration = self._get_registration_row(conn, registration_id=registration_id)
+            if not registration:
+                raise ValueError("Registration was not found.")
+            if not registration["customer_id"]:
+                raise ValueError("Registration has no customer record.")
+            conn.execute(
+                """
+                UPDATE customers
+                SET status = 'active', updated_at = ?
+                WHERE id = ?
+                """,
+                (now, registration["customer_id"]),
+            )
+            conn.execute(
+                """
+                UPDATE customer_registrations
+                SET status = 'active', activated_at = COALESCE(activated_at, ?), updated_at = ?
+                WHERE id = ?
+                """,
+                (now, now, registration_id),
+            )
+            task = conn.execute(
+                """
+                SELECT id
+                FROM technician_installation_tasks
+                WHERE customer_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (registration["customer_id"],),
+            ).fetchone()
+            if task:
+                conn.execute(
+                    """
+                    UPDATE technician_installation_tasks
+                    SET status = 'completed', completed_at = COALESCE(completed_at, ?), notes = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, notes, now, task["id"]),
+                )
+            row = self._get_registration_row(conn, registration_id=registration_id)
+            return self._decode_registration_row(conn, dict(row))
+
+    def update_installation_task_notification(
+        self,
+        *,
+        registration_id: int,
+        notification_status: str,
+        technician_contact: str | None = None,
+    ) -> None:
+        now = _utc_now()
+        with self._connect() as conn:
+            task = conn.execute(
+                """
+                SELECT id
+                FROM technician_installation_tasks
+                WHERE registration_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (registration_id,),
+            ).fetchone()
+            if not task:
+                return
+            conn.execute(
+                """
+                UPDATE technician_installation_tasks
+                SET
+                    notification_status = ?,
+                    technician_contact = COALESCE(?, technician_contact),
+                    status = CASE WHEN ? = 'sent' THEN 'notified' ELSE status END,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    notification_status,
+                    technician_contact,
+                    notification_status,
+                    now,
+                    task["id"],
+                ),
+            )
+
+    def save_misaligned_message_dump(
+        self,
+        *,
+        stored_message: StoredIncomingMessage,
+        analysis: dict[str, Any],
+        bot_response: str | None,
+        reason: str,
+    ) -> None:
+        now = _utc_now()
+        intent = analysis.get("intent") or {}
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO misaligned_message_dumps (
+                    client_id,
+                    device_id,
+                    conversation_id,
+                    message_id,
+                    sender_number,
+                    sender_name,
+                    message_text,
+                    bot_response,
+                    detected_intent,
+                    confidence,
+                    reason,
+                    analysis_json,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(message_id) DO UPDATE SET
+                    bot_response = excluded.bot_response,
+                    detected_intent = excluded.detected_intent,
+                    confidence = excluded.confidence,
+                    reason = excluded.reason,
+                    analysis_json = excluded.analysis_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    stored_message.device.client_id,
+                    stored_message.device.device_id,
+                    stored_message.conversation_id,
+                    stored_message.message_id,
+                    stored_message.sender_number,
+                    stored_message.sender_name,
+                    stored_message.message_text,
+                    bot_response,
+                    intent.get("intent_code"),
+                    float(intent.get("confidence") or 0),
+                    reason,
+                    json.dumps(analysis, ensure_ascii=True),
+                    now,
+                    now,
+                ),
+            )
+
+    def list_misaligned_message_dumps(
+        self,
+        *,
+        status_filter: str = "pending",
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 200))
+        valid_statuses = {"pending", "reviewed", "ignored", "all"}
+        if status_filter not in valid_statuses:
+            raise ValueError("Invalid dump status filter.")
+        filters = []
+        params: list[Any] = []
+        if status_filter != "all":
+            filters.append("mmd.status = ?")
+            params.append(status_filter)
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    mmd.id,
+                    mmd.client_id,
+                    c.name AS client_name,
+                    a.slug AS account_slug,
+                    mmd.device_id,
+                    d.device_identifier,
+                    d.device_name,
+                    mmd.conversation_id,
+                    mmd.message_id,
+                    mmd.sender_number,
+                    mmd.sender_name,
+                    mmd.message_text,
+                    mmd.bot_response,
+                    mmd.detected_intent,
+                    mmd.confidence,
+                    mmd.reason,
+                    mmd.analysis_json,
+                    mmd.status,
+                    mmd.reviewer_notes,
+                    mmd.created_at,
+                    mmd.updated_at,
+                    mmd.resolved_at
+                FROM misaligned_message_dumps mmd
+                JOIN clients c ON c.id = mmd.client_id
+                JOIN accounts a ON a.id = c.account_id
+                JOIN devices d ON d.id = mmd.device_id
+                {where_clause}
+                ORDER BY mmd.created_at DESC, mmd.id DESC
+                LIMIT ?
+                """,
+                (*params, safe_limit),
+            ).fetchall()
+        return [self._decode_message_dump_row(dict(row)) for row in rows]
+
+    def review_misaligned_message_dump(
+        self,
+        *,
+        dump_id: int,
+        status: str,
+        reviewer_notes: str | None = None,
+    ) -> dict[str, Any]:
+        normalized_status = status.strip().lower()
+        if normalized_status not in {"reviewed", "ignored", "pending"}:
+            raise ValueError("status must be pending, reviewed, or ignored.")
+        now = _utc_now()
+        resolved_at = now if normalized_status in {"reviewed", "ignored"} else None
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE misaligned_message_dumps
+                SET status = ?, reviewer_notes = ?, updated_at = ?, resolved_at = ?
+                WHERE id = ?
+                """,
+                (normalized_status, reviewer_notes, now, resolved_at, dump_id),
+            )
+            row = conn.execute(
+                """
+                SELECT
+                    mmd.id,
+                    mmd.client_id,
+                    c.name AS client_name,
+                    a.slug AS account_slug,
+                    mmd.device_id,
+                    d.device_identifier,
+                    d.device_name,
+                    mmd.conversation_id,
+                    mmd.message_id,
+                    mmd.sender_number,
+                    mmd.sender_name,
+                    mmd.message_text,
+                    mmd.bot_response,
+                    mmd.detected_intent,
+                    mmd.confidence,
+                    mmd.reason,
+                    mmd.analysis_json,
+                    mmd.status,
+                    mmd.reviewer_notes,
+                    mmd.created_at,
+                    mmd.updated_at,
+                    mmd.resolved_at
+                FROM misaligned_message_dumps mmd
+                JOIN clients c ON c.id = mmd.client_id
+                JOIN accounts a ON a.id = c.account_id
+                JOIN devices d ON d.id = mmd.device_id
+                WHERE mmd.id = ?
+                """,
+                (dump_id,),
+            ).fetchone()
+            if not row:
+                raise ValueError("Message dump was not found.")
+            return self._decode_message_dump_row(dict(row))
+
     def save_unprocessed_question(
         self,
         *,
@@ -3745,6 +4721,274 @@ class SQLiteChatStore:
     def _decode_billing_row(self, row: dict[str, Any]) -> dict[str, Any]:
         row["raw_payload"] = self._decode_json_value(row.get("raw_payload"), {})
         return row
+
+    def _registration_select_sql(self) -> str:
+        return """
+            SELECT
+                cr.id,
+                cr.client_id,
+                c.name AS client_name,
+                a.slug AS account_slug,
+                cr.device_id,
+                d.device_identifier,
+                d.device_name,
+                d.outbound_token,
+                cr.conversation_id,
+                cr.customer_id,
+                cr.token,
+                cr.sender_number,
+                cr.sender_name,
+                cr.default_name,
+                cr.default_phone,
+                cr.name,
+                cr.phone,
+                cr.email,
+                cr.address,
+                cr.maps_link,
+                cr.status,
+                cr.registration_url,
+                cr.payment_url,
+                cr.submitted_at,
+                cr.approved_at,
+                cr.paid_at,
+                cr.activated_at,
+                cr.created_at,
+                cr.updated_at,
+                cu.customer_code,
+                cu.status AS customer_status,
+                cu.virtual_account,
+                cu.payment_method,
+                cu.pppoe_username,
+                cu.installation_date
+            FROM customer_registrations cr
+            JOIN clients c ON c.id = cr.client_id
+            JOIN accounts a ON a.id = c.account_id
+            JOIN devices d ON d.id = cr.device_id
+            LEFT JOIN customers cu ON cu.id = cr.customer_id
+        """
+
+    def _get_registration_row(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        registration_id: int | None = None,
+        token: str | None = None,
+        conversation_id: int | None = None,
+    ) -> sqlite3.Row | None:
+        filters = []
+        params: list[Any] = []
+        if registration_id is not None:
+            filters.append("cr.id = ?")
+            params.append(registration_id)
+        if token is not None:
+            filters.append("cr.token = ?")
+            params.append(token)
+        if conversation_id is not None:
+            filters.append("cr.conversation_id = ?")
+            params.append(conversation_id)
+        if not filters:
+            return None
+        return conn.execute(
+            f"""
+            {self._registration_select_sql()}
+            WHERE {" AND ".join(filters)}
+            ORDER BY cr.id DESC
+            LIMIT 1
+            """,
+            tuple(params),
+        ).fetchone()
+
+    def _decode_registration_row(
+        self,
+        conn: sqlite3.Connection,
+        row: dict[str, Any],
+    ) -> dict[str, Any]:
+        registration_id = int(row["id"])
+        payments = conn.execute(
+            """
+            SELECT
+                id,
+                client_id,
+                device_id,
+                registration_id,
+                customer_id,
+                payment_method,
+                status,
+                amount,
+                reference_number,
+                virtual_account,
+                proof_file_path,
+                proof_file_name,
+                proof_content_type,
+                proof_uploaded_at,
+                provider_payload,
+                notes,
+                created_at,
+                updated_at
+            FROM payment_confirmations
+            WHERE registration_id = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (registration_id,),
+        ).fetchall()
+        tasks = conn.execute(
+            """
+            SELECT
+                id,
+                client_id,
+                device_id,
+                registration_id,
+                customer_id,
+                status,
+                notification_status,
+                technician_contact,
+                scheduled_at,
+                completed_at,
+                notes,
+                created_at,
+                updated_at
+            FROM technician_installation_tasks
+            WHERE registration_id = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (registration_id,),
+        ).fetchall()
+        row["payments"] = [self._decode_payment_row(dict(payment)) for payment in payments]
+        row["installation_tasks"] = [dict(task) for task in tasks]
+        row["customer"] = {
+            "id": row.get("customer_id"),
+            "customer_code": row.get("customer_code"),
+            "status": row.get("customer_status"),
+            "virtual_account": row.get("virtual_account"),
+            "payment_method": row.get("payment_method"),
+            "pppoe_username": row.get("pppoe_username"),
+            "installation_date": row.get("installation_date"),
+        }
+        return row
+
+    def _get_payment_confirmation(
+        self,
+        conn: sqlite3.Connection,
+        payment_id: int,
+    ) -> sqlite3.Row | None:
+        return conn.execute(
+            """
+            SELECT
+                id,
+                client_id,
+                device_id,
+                registration_id,
+                customer_id,
+                payment_method,
+                status,
+                amount,
+                reference_number,
+                virtual_account,
+                proof_file_path,
+                proof_file_name,
+                proof_content_type,
+                proof_uploaded_at,
+                provider_payload,
+                notes,
+                created_at,
+                updated_at
+            FROM payment_confirmations
+            WHERE id = ?
+            """,
+            (payment_id,),
+        ).fetchone()
+
+    def _decode_payment_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        row["provider_payload"] = self._decode_json_value(row.get("provider_payload"), {})
+        return row
+
+    def _decode_message_dump_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        row["analysis"] = self._decode_json_value(row.get("analysis_json"), {})
+        return row
+
+    def _new_public_token(self) -> str:
+        return secrets.token_urlsafe(24)
+
+    def _public_base_url(self) -> str:
+        configured = self.settings.public_base_url.strip().rstrip("/")
+        if configured:
+            return configured
+        return f"http://{self.settings.app_host}:{self.settings.app_port}"
+
+    def _registration_public_urls(self, token: str) -> tuple[str, str]:
+        base_url = self._public_base_url()
+        return f"{base_url}/register/{token}", f"{base_url}/payment/{token}"
+
+    def _generate_customer_code(self, conn: sqlite3.Connection, client_id: int) -> str:
+        alphabet = string.ascii_uppercase + string.digits
+        for _ in range(100):
+            code = "".join(secrets.choice(alphabet) for _ in range(10))
+            existing = conn.execute(
+                """
+                SELECT 1
+                FROM customers
+                WHERE client_id = ? AND customer_code = ?
+                """,
+                (client_id, code),
+            ).fetchone()
+            if not existing:
+                return code
+        raise ValueError("Could not generate a unique customer code.")
+
+    def _generate_virtual_account(self, customer_code: str) -> str:
+        prefix = re.sub(r"[^A-Za-z0-9]+", "", self.settings.virtual_account_prefix) or "ISP"
+        return f"{prefix}{customer_code}"
+
+    def _ensure_installation_task(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        registration: dict[str, Any],
+        now: str,
+    ) -> None:
+        existing = conn.execute(
+            """
+            SELECT id
+            FROM technician_installation_tasks
+            WHERE client_id = ? AND customer_id = ?
+            """,
+            (registration["client_id"], registration["customer_id"]),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """
+                UPDATE technician_installation_tasks
+                SET status = CASE WHEN status = 'completed' THEN status ELSE 'pending' END,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (now, existing["id"]),
+            )
+            return
+
+        conn.execute(
+            """
+            INSERT INTO technician_installation_tasks (
+                client_id,
+                device_id,
+                registration_id,
+                customer_id,
+                status,
+                notification_status,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, 'pending', 'pending', ?, ?)
+            """,
+            (
+                registration["client_id"],
+                registration["device_id"],
+                registration["id"],
+                registration["customer_id"],
+                now,
+                now,
+            ),
+        )
 
     def _resolve_client(
         self,

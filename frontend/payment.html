@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pembayaran Pelanggan</title>
+    <link rel="stylesheet" href="/registration-assets/registration.css?v=registration-20260618" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="panel">
+        <header class="panel-header">
+          <p class="eyebrow">Pembayaran Internet</p>
+          <h1>Status dan bukti pembayaran</h1>
+          <p class="muted">Upload bukti transfer bank dari halaman ini.</p>
+        </header>
+        <div class="panel-body">
+          <div id="paymentSummary" class="summary"></div>
+          <form id="proofForm" class="grid">
+            <div class="grid two">
+              <label>
+                Nominal
+                <input id="amountInput" type="number" min="0" value="0" />
+              </label>
+              <label>
+                Nomor Referensi
+                <input id="referenceInput" maxlength="255" />
+              </label>
+            </div>
+            <label>
+              Bukti Pembayaran
+              <input id="proofInput" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required />
+            </label>
+            <label>
+              Catatan
+              <textarea id="notesInput"></textarea>
+            </label>
+            <div class="actions">
+              <button id="uploadButton" type="submit">Upload Bukti</button>
+              <a id="registrationLink" class="button-link secondary hidden" href="#">Buka Pendaftaran</a>
+            </div>
+          </form>
+          <div id="statusBox" class="status">Memuat data pembayaran...</div>
+        </div>
+      </section>
+    </main>
+    <script src="/registration-assets/payment.js?v=registration-20260618" defer></script>
+  </body>
+</html>

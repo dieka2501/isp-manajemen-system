@@ -1,3 +1,7 @@
+2026-06-18
+- Added a SQLite-backed customer registration flow triggered from chatbot coverage/high-interaction conversations, with public registration/payment pages, customer statuses from registered through active, admin approval/payment/activation APIs, payment proof uploads, virtual account callback support, and technician notification tracking.
+- Added misaligned message dumps for low-confidence or "belum nyambung" chatbot replies, plus SQLite Explorer tabs to review dumps and manage customer registrations from the operations dashboard.
+
 2026-06-16
 - Removed the duplicate top client dashboard logout button, made the existing sidebar logout button more visible, and documented the guardrail to verify existing functions before adding duplicates.
 - Added explicit client dashboard logout controls and auto-cleared dashboard state when a client signs out or the session expires.

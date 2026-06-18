@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Form Pendaftaran Pelanggan</title>
+    <link rel="stylesheet" href="/registration-assets/registration.css?v=registration-20260618" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="panel">
+        <header class="panel-header">
+          <p class="eyebrow">Pendaftaran Internet</p>
+          <h1>Lengkapi data pelanggan</h1>
+          <p class="muted">Status verifikasi akan dikirim ke WhatsApp setelah data masuk.</p>
+        </header>
+        <div class="panel-body">
+          <div id="registrationSummary" class="summary hidden"></div>
+          <form id="registrationForm" class="grid">
+            <div class="grid two">
+              <label>
+                Nama Pelanggan
+                <input id="nameInput" maxlength="255" autocomplete="name" required />
+              </label>
+              <label>
+                No WA Pelanggan
+                <input id="phoneInput" maxlength="255" autocomplete="tel" required />
+              </label>
+            </div>
+            <label>
+              Email Pelanggan
+              <input id="emailInput" maxlength="255" type="email" autocomplete="email" />
+            </label>
+            <label>
+              Alamat Lengkap
+              <textarea id="addressInput" required></textarea>
+            </label>
+            <label>
+              Link Google Maps
+              <textarea id="mapsInput"></textarea>
+            </label>
+            <div class="actions">
+              <button id="submitButton" type="submit">Kirim Pendaftaran</button>
+              <a id="paymentLink" class="button-link secondary hidden" href="#">Buka Pembayaran</a>
+            </div>
+          </form>
+          <div id="statusBox" class="status">Memuat data form...</div>
+        </div>
+      </section>
+    </main>
+    <script src="/registration-assets/registration.js?v=registration-20260618" defer></script>
+  </body>
+</html>
