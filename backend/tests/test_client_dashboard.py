@@ -211,6 +211,54 @@ class ClientDashboardTests(unittest.TestCase):
         self.assertEqual(customers[0]["status"], "active")
         self.assertEqual(customers[0]["maps_link"], "https://maps.example.test/customer")
 
+    def test_registration_url_uses_app_host_without_app_port_suffix_in_production(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = SQLiteChatStore(
+                Settings(
+                    chat_database_path=str(Path(temp_dir) / "chat.sqlite3"),
+                    billing_sample_xlsx_path="",
+                    app_host="isp.example.test",
+                    app_port=8000,
+                )
+            )
+            store.initialize()
+            stored = store.save_incoming_message(
+                {
+                    "sender": "08123456789",
+                    "name": "Production Link",
+                    "message": "cek coverage",
+                    "device": "prod-link-device",
+                }
+            )
+
+            invitation = store.get_or_create_customer_registration_invitation(stored)
+
+        self.assertTrue(invitation["registration_url"].startswith("https://isp.example.test/register/"))
+        self.assertNotIn(":8000", invitation["registration_url"])
+
+    def test_registration_url_allows_port_inside_local_app_host(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = SQLiteChatStore(
+                Settings(
+                    chat_database_path=str(Path(temp_dir) / "chat.sqlite3"),
+                    billing_sample_xlsx_path="",
+                    app_host="127.0.0.1:8000",
+                )
+            )
+            store.initialize()
+            stored = store.save_incoming_message(
+                {
+                    "sender": "08123456789",
+                    "name": "Local Link",
+                    "message": "cek coverage",
+                    "device": "local-link-device",
+                }
+            )
+
+            invitation = store.get_or_create_customer_registration_invitation(stored)
+
+        self.assertTrue(invitation["registration_url"].startswith("http://127.0.0.1:8000/register/"))
+
     def test_chatbot_offers_registration_link_after_coverage_question(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             settings = Settings(

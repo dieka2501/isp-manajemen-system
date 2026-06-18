@@ -4912,8 +4912,18 @@ class SQLiteChatStore:
     def _public_base_url(self) -> str:
         configured = self.settings.public_base_url.strip().rstrip("/")
         if configured:
-            return configured
-        return f"http://{self.settings.app_host}:{self.settings.app_port}"
+            return self._normalize_public_base_url(configured)
+        return self._normalize_public_base_url(self.settings.app_host)
+
+    def _normalize_public_base_url(self, value: str) -> str:
+        host = value.strip().rstrip("/")
+        if not host:
+            host = "127.0.0.1:8000"
+        if host.startswith(("http://", "https://")):
+            return host
+        local_hosts = ("127.", "localhost", "0.0.0.0", "[::1]", "::1")
+        scheme = "http" if host.startswith(local_hosts) else "https"
+        return f"{scheme}://{host}"
 
     def _registration_public_urls(self, token: str) -> tuple[str, str]:
         base_url = self._public_base_url()
