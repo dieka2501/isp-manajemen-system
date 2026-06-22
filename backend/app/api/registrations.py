@@ -9,15 +9,14 @@ from email.policy import default
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import Settings, get_settings
 from app.services.chat_store import SQLiteChatStore
-from app.services.dashboard_auth import DashboardAuthService
 from app.services.fonnte import FonnteClient
 
-registration_router = APIRouter(prefix="/registrations", tags=["customer-registrations"])
+public_registration_router = APIRouter(tags=["public-registrations"])
 
 
 class PublicRegistrationSubmitRequest(BaseModel):
@@ -29,6 +28,8 @@ class PublicRegistrationSubmitRequest(BaseModel):
 
 
 class RegistrationApproveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     amount: int | None = Field(default=None, ge=0)
     payment_method: str = Field(default="virtual_account")
     virtual_account: str | None = None
@@ -36,6 +37,8 @@ class RegistrationApproveRequest(BaseModel):
 
 
 class RegistrationPaymentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     payment_method: str
     amount: int = Field(default=0, ge=0)
     reference_number: str | None = None
@@ -44,6 +47,8 @@ class RegistrationPaymentRequest(BaseModel):
 
 
 class InstallationCompleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     notes: str | None = None
 
 
@@ -53,11 +58,6 @@ class VirtualAccountCallbackRequest(BaseModel):
     reference_number: str | None = None
     virtual_account: str | None = None
     provider_payload: dict[str, Any] | None = None
-
-
-class MessageDumpReviewRequest(BaseModel):
-    status: str
-    reviewer_notes: str | None = None
 
 
 @dataclass(frozen=True)
@@ -73,10 +73,6 @@ def _store() -> SQLiteChatStore:
 
 def _settings() -> Settings:
     return get_settings()
-
-
-def _require_dashboard_auth(request: Request) -> None:
-    DashboardAuthService(get_settings()).require_auth(request)
 
 
 def _parse_optional_int(value: str | None, default: int = 0) -> int:
@@ -242,7 +238,7 @@ def _validate_payment_webhook_secret(provided_secret: str | None, settings: Sett
         )
 
 
-@registration_router.get("/public/{token}")
+@public_registration_router.get("/public/{token}")
 def get_public_registration(token: str) -> dict[str, Any]:
     try:
         item = _store().get_customer_registration_by_token(token)
@@ -251,7 +247,7 @@ def get_public_registration(token: str) -> dict[str, Any]:
     return {"item": item}
 
 
-@registration_router.post("/public/{token}")
+@public_registration_router.post("/public/{token}")
 def submit_public_registration(
     token: str,
     payload: PublicRegistrationSubmitRequest,
@@ -277,7 +273,7 @@ def submit_public_registration(
     return {"item": item, "notification": notification}
 
 
-@registration_router.get("/public/{token}/payment")
+@public_registration_router.get("/public/{token}/payment")
 def get_public_payment(token: str) -> dict[str, Any]:
     try:
         item = _store().get_customer_registration_by_token(token)
@@ -286,7 +282,7 @@ def get_public_payment(token: str) -> dict[str, Any]:
     return {"item": item}
 
 
-@registration_router.post("/public/{token}/payment-proof")
+@public_registration_router.post("/public/{token}/payment-proof")
 async def upload_public_payment_proof(token: str, request: Request) -> dict[str, Any]:
     body = await request.body()
     if len(body) > 8 * 1024 * 1024:
@@ -333,113 +329,7 @@ async def upload_public_payment_proof(token: str, request: Request) -> dict[str,
     return {"item": item}
 
 
-@registration_router.get("/admin/items", dependencies=[Depends(_require_dashboard_auth)])
-def list_admin_registrations(
-    status_filter: str = Query(default="registered", alias="status"),
-    limit: int = Query(default=100, ge=1, le=200),
-) -> dict[str, Any]:
-    try:
-        items = _store().list_customer_registrations(
-            status_filter=status_filter,
-            limit=limit,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    return {"items": items}
-
-
-@registration_router.post(
-    "/admin/{registration_id}/approve",
-    dependencies=[Depends(_require_dashboard_auth)],
-)
-def approve_registration(
-    registration_id: int,
-    payload: RegistrationApproveRequest,
-) -> dict[str, Any]:
-    store = _store()
-    settings = _settings()
-    try:
-        item = store.approve_customer_registration(
-            registration_id=registration_id,
-            amount=payload.amount,
-            payment_method=payload.payment_method,
-            virtual_account=payload.virtual_account,
-            notes=payload.notes,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    notification = _send_customer_message(
-        settings=settings,
-        registration=item,
-        message=_approved_notice(item),
-    )
-    return {"item": item, "notification": notification}
-
-
-@registration_router.post(
-    "/admin/{registration_id}/payment",
-    dependencies=[Depends(_require_dashboard_auth)],
-)
-def record_admin_payment(
-    registration_id: int,
-    payload: RegistrationPaymentRequest,
-) -> dict[str, Any]:
-    store = _store()
-    settings = _settings()
-    try:
-        item = store.record_registration_payment(
-            registration_id=registration_id,
-            payment_method=payload.payment_method,
-            amount=payload.amount,
-            reference_number=payload.reference_number,
-            virtual_account=payload.virtual_account,
-            notes=payload.notes,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    customer_notification = _send_customer_message(
-        settings=settings,
-        registration=item,
-        message=_paid_notice(item),
-    )
-    technician_notification = _notify_technicians(
-        settings=settings,
-        store=store,
-        registration=item,
-    )
-    return {
-        "item": item,
-        "customer_notification": customer_notification,
-        "technician_notification": technician_notification,
-    }
-
-
-@registration_router.post(
-    "/admin/{registration_id}/activate",
-    dependencies=[Depends(_require_dashboard_auth)],
-)
-def activate_registration(
-    registration_id: int,
-    payload: InstallationCompleteRequest,
-) -> dict[str, Any]:
-    store = _store()
-    settings = _settings()
-    try:
-        item = store.complete_customer_installation(
-            registration_id=registration_id,
-            notes=payload.notes,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    notification = _send_customer_message(
-        settings=settings,
-        registration=item,
-        message=_active_notice(item),
-    )
-    return {"item": item, "notification": notification}
-
-
-@registration_router.post("/virtual-account/callback")
+@public_registration_router.post("/virtual-account/callback")
 def virtual_account_callback(
     payload: VirtualAccountCallbackRequest,
     secret: str | None = Query(default=None),
@@ -475,37 +365,3 @@ def virtual_account_callback(
         "customer_notification": customer_notification,
         "technician_notification": technician_notification,
     }
-
-
-@registration_router.get("/admin/message-dumps", dependencies=[Depends(_require_dashboard_auth)])
-def list_message_dumps(
-    status_filter: str = Query(default="pending", alias="status"),
-    limit: int = Query(default=100, ge=1, le=200),
-) -> dict[str, Any]:
-    try:
-        items = _store().list_misaligned_message_dumps(
-            status_filter=status_filter,
-            limit=limit,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    return {"items": items}
-
-
-@registration_router.post(
-    "/admin/message-dumps/{dump_id}",
-    dependencies=[Depends(_require_dashboard_auth)],
-)
-def review_message_dump(
-    dump_id: int,
-    payload: MessageDumpReviewRequest,
-) -> dict[str, Any]:
-    try:
-        item = _store().review_misaligned_message_dump(
-            dump_id=dump_id,
-            status=payload.status,
-            reviewer_notes=payload.reviewer_notes,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    return {"item": item}

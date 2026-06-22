@@ -2,21 +2,26 @@
 
 Repository ini digunakan sebagai fondasi pengembangan sistem manajemen ISP dengan pendekatan modular agar backend, frontend, dan service pendukung dapat dikembangkan secara terpisah.
 
-## Struktur Awal Project
+## Struktur Project
 
 ```text
 .
 ├── backend
 │   ├── app
 │   │   ├── api
+│   │   ├── auth
+│   │   ├── client_dashboard
 │   │   ├── core
+│   │   ├── provider_dashboard
 │   │   └── services
 │   ├── pyproject.toml
 │   └── requirements.txt
 ├── .env.example
 ├── frontend
 │   ├── app.js
+│   ├── client-dashboard
 │   ├── index.html
+│   ├── provider-dashboard
 │   └── styles.css
 ├── packages
 │   └── shared
@@ -39,9 +44,14 @@ Fitur awal:
 - agent CS/Sales ISP berbasis SQLite untuk intent, entity, slot, dan balasan awal
 - siap dikembangkan untuk modul autentikasi, pelanggan, billing, dan notifikasi
 
-### `frontend`
+### Dashboard
 
-Dashboard SQLite explorer yang disajikan oleh backend dari folder `frontend` di root project.
+- Provider Dashboard: `http://127.0.0.1:8000/sqlexplore`
+- Client Dashboard: `http://127.0.0.1:8000/client-dashboard`
+- Approval registrasi Client: `http://127.0.0.1:8000/client-dashboard/registrations`
+- Route `/` hanya mengarahkan session ke dashboard yang sesuai atau ke `/login`.
+
+Route, layout, navigation, permission, dan API boundary kedua dashboard terpisah. Detail inventory dan migrasi tersedia di [dashboard-separation-inventory.md](docs/dashboard-separation-inventory.md) dan [dashboard-separation-migration.md](docs/dashboard-separation-migration.md).
 
 ### `packages/shared`
 
@@ -73,9 +83,13 @@ python -m app.cli.send_whatsapp -n 08123456789 -m "Halo dari CLI"
 - `GET /health`
 - `GET /api/v1`
 
-## Langkah Berikutnya
+## Validasi
 
-- menambahkan modul autentikasi
-- menambahkan modul pelanggan
-- menambahkan modul billing reminder
-- menambahkan integrasi WhatsApp dan AI service
+```bash
+cd backend
+../env/bin/python -m unittest discover -s tests -v
+```
+
+Test dashboard mencakup redirect actor-aware, permission Provider, isolasi
+tenant Client, penolakan cross-dashboard, manipulasi `client_id`, dan route
+compatibility.

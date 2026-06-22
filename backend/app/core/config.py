@@ -84,12 +84,20 @@ class Settings:
         "sqlite_dashboard_session",
     )
     dashboard_session_hours: int = int(os.getenv("DASHBOARD_SESSION_HOURS", "12"))
+    dashboard_cookie_secure: bool = os.getenv(
+        "DASHBOARD_COOKIE_SECURE",
+        "false",
+    ).lower() == "true"
     client_dashboard_jwt_secret: str = (
         os.getenv("CLIENT_DASHBOARD_JWT_SECRET")
         or os.getenv("DASHBOARD_SECRET")
         or "dev-client-dashboard-secret"
     )
     client_dashboard_token_hours: int = int(os.getenv("CLIENT_DASHBOARD_TOKEN_HOURS", "2"))
+    client_dashboard_cookie_name: str = os.getenv(
+        "CLIENT_DASHBOARD_COOKIE_NAME",
+        "client_dashboard_session",
+    )
     client_dashboard_seed_email: str = os.getenv(
         "CLIENT_DASHBOARD_SEED_EMAIL",
         "admin@isp.local",

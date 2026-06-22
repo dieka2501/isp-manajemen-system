@@ -1,12 +1,21 @@
+import { ClientDashboardLayout } from "/client-dashboard-assets/client-dashboard/layouts/client-dashboard-layout.js";
+import { clientNavigation } from "/client-dashboard-assets/client-dashboard/navigation/client-navigation.js";
+import { clientPermissions } from "/client-dashboard-assets/client-dashboard/permissions/client-permissions.js";
+import { clientRoutes, clientViewFromPath } from "/client-dashboard-assets/client-dashboard/routes/client-routes.js";
+
+new ClientDashboardLayout({
+  navigation: clientNavigation,
+  permissions: clientPermissions,
+  routes: clientRoutes,
+}).mountNavigation(document.getElementById("clientNavigation"));
+
 const STORAGE_KEYS = {
-  token: "clientDashboard.token",
   expiresAt: "clientDashboard.expiresAt",
 };
 
 const SESSION_EXPIRED_MESSAGE = "Sesi habis setelah 2 jam. Silakan login lagi.";
 
 const state = {
-  token: localStorage.getItem(STORAGE_KEYS.token) || "",
   expiresAt: Number(localStorage.getItem(STORAGE_KEYS.expiresAt) || 0),
   client: null,
   currentView: "overview",
@@ -14,6 +23,8 @@ const state = {
   customers: [],
   packages: [],
   billing: [],
+  registrations: [],
+  selectedRegistrationId: null,
   learningItems: [],
   learningIntents: [],
   selectedLearningId: null,
@@ -48,6 +59,23 @@ const el = {
   billingStatusFilter: document.getElementById("billingStatusFilter"),
   billingCount: document.getElementById("billingCount"),
   billingTable: document.getElementById("billingTable"),
+  refreshRegistrationsButton: document.getElementById("refreshRegistrationsButton"),
+  registrationStatusFilter: document.getElementById("registrationStatusFilter"),
+  registrationLimitInput: document.getElementById("registrationLimitInput"),
+  registrationsList: document.getElementById("registrationsList"),
+  registrationsCount: document.getElementById("registrationsCount"),
+  registrationDetailTitle: document.getElementById("registrationDetailTitle"),
+  registrationMeta: document.getElementById("registrationMeta"),
+  registrationStatusBadge: document.getElementById("registrationStatusBadge"),
+  registrationSummaryBox: document.getElementById("registrationSummaryBox"),
+  approveAmountInput: document.getElementById("approveAmountInput"),
+  approvePaymentMethodSelect: document.getElementById("approvePaymentMethodSelect"),
+  approveVirtualAccountInput: document.getElementById("approveVirtualAccountInput"),
+  approveRegistrationButton: document.getElementById("approveRegistrationButton"),
+  cashPaymentButton: document.getElementById("cashPaymentButton"),
+  bankPaymentButton: document.getElementById("bankPaymentButton"),
+  activateRegistrationButton: document.getElementById("activateRegistrationButton"),
+  registrationActionStatus: document.getElementById("registrationActionStatus"),
   learningStatusFilter: document.getElementById("learningStatusFilter"),
   learningList: document.getElementById("learningList"),
   learningTitle: document.getElementById("learningTitle"),
@@ -71,6 +99,7 @@ const viewTitles = {
   customers: "Customer",
   packages: "Paket",
   billing: "Billing",
+  registrations: "Approval Registrasi",
   learning: "Learn Process",
 };
 
@@ -153,23 +182,21 @@ function showApp() {
   el.appShell.classList.remove("hidden");
 }
 
-function persistToken(token, expiresAt) {
-  state.token = token;
+function persistSession(expiresAt) {
   state.expiresAt = Number(expiresAt || 0);
-  localStorage.setItem(STORAGE_KEYS.token, state.token);
   localStorage.setItem(STORAGE_KEYS.expiresAt, String(state.expiresAt));
+  localStorage.removeItem("clientDashboard.token");
   scheduleSessionExpiry();
 }
 
-function clearToken() {
-  state.token = "";
+function clearSessionState() {
   state.expiresAt = 0;
   state.client = null;
   if (state.sessionTimerId !== null) {
     window.clearTimeout(state.sessionTimerId);
     state.sessionTimerId = null;
   }
-  localStorage.removeItem(STORAGE_KEYS.token);
+  localStorage.removeItem("clientDashboard.token");
   localStorage.removeItem(STORAGE_KEYS.expiresAt);
 }
 
@@ -178,6 +205,8 @@ function resetDashboardState() {
   state.customers = [];
   state.packages = [];
   state.billing = [];
+  state.registrations = [];
+  state.selectedRegistrationId = null;
   state.learningItems = [];
   state.learningIntents = [];
   state.selectedLearningId = null;
@@ -186,13 +215,16 @@ function resetDashboardState() {
   el.customersTable.innerHTML = "";
   el.packagesTable.innerHTML = "";
   el.billingTable.innerHTML = "";
+  el.registrationsList.innerHTML = "";
+  el.registrationsCount.textContent = "0 data";
+  renderRegistrationDetail();
   el.learningList.innerHTML = "";
   el.mappingIntentSelect.innerHTML = "";
   renderLearningDetail();
 }
 
 function clearSession(message = "") {
-  clearToken();
+  clearSessionState();
   resetDashboardState();
   showLogin(message);
 }
@@ -222,10 +254,10 @@ async function dashboardApi(path, options = {}) {
     clearSession(SESSION_EXPIRED_MESSAGE);
     throw new Error(SESSION_EXPIRED_MESSAGE);
   }
-  const response = await fetch(`/api/v1/client-dashboard${path}`, {
+  const response = await fetch(`/api/v1/client${path}`, {
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${state.token}`,
       ...(options.headers || {}),
     },
     ...options,
@@ -252,7 +284,7 @@ function renderProfile() {
     .join(" | ");
 }
 
-function switchView(view) {
+function switchView(view, { updateUrl = true } = {}) {
   state.currentView = view;
   document.querySelectorAll(".view").forEach((node) => {
     node.classList.toggle("hidden", node.id !== `${view}View`);
@@ -261,6 +293,9 @@ function switchView(view) {
     button.classList.toggle("is-active", button.dataset.view === view);
   });
   el.viewTitle.textContent = viewTitles[view] || "Dashboard";
+  if (updateUrl && window.location.pathname.startsWith("/client-dashboard")) {
+    window.history.replaceState({}, "", clientRoutes[view] || clientRoutes.overview);
+  }
 }
 
 function metric(label, value, detail = "") {
@@ -304,6 +339,10 @@ function statusBadge(status) {
     active: "Aktif",
     inactive: "Nonaktif",
     suspended: "Suspend",
+    draft: "Draft",
+    registered: "Registered",
+    approved: "Approved",
+    rejected: "Ditolak",
     pending: "Pending",
     mapped: "Mapped",
     ignored: "Ignored",
@@ -377,6 +416,149 @@ function renderBilling() {
     ["Tanggal", (row) => formatDate(row.payment_date)],
     ["Rekening", (row) => row.payment_account || "-"],
   ], state.billing);
+}
+
+function selectedRegistration() {
+  return state.registrations.find((item) => item.id === state.selectedRegistrationId) || null;
+}
+
+function setRegistrationActions(item) {
+  el.approveRegistrationButton.disabled = !item || item.status !== "registered";
+  el.cashPaymentButton.disabled = !item || item.status !== "approved";
+  el.bankPaymentButton.disabled = !item || item.status !== "approved";
+  el.activateRegistrationButton.disabled = !item || item.status !== "paid";
+}
+
+function renderRegistrations() {
+  el.registrationsCount.textContent = `${state.registrations.length} data`;
+  el.registrationsList.innerHTML = state.registrations.length
+    ? state.registrations
+        .map((item) => {
+          const selected = item.id === state.selectedRegistrationId;
+          return `
+            <button class="registration-item ${selected ? "is-selected" : ""}" type="button" data-registration-id="${item.id}">
+              <span class="registration-item-heading">
+                <strong>${escapeHtml(item.name || item.default_name || item.sender_name || item.sender_number || "Tanpa nama")}</strong>
+                ${statusBadge(item.status)}
+              </span>
+              <span>${escapeHtml(item.phone || item.default_phone || item.sender_number || "-")}</span>
+              <small>${escapeHtml(item.customer_code || "Belum ada ID")} · ${escapeHtml(item.updated_at || "-")}</small>
+            </button>
+          `;
+        })
+        .join("")
+    : `<div class="empty-state">Belum ada registrasi untuk filter ini.</div>`;
+}
+
+function renderRegistrationDetail() {
+  const item = selectedRegistration();
+  setRegistrationActions(item);
+  if (!item) {
+    el.registrationDetailTitle.textContent = "Pilih registrasi";
+    el.registrationMeta.textContent = "Approval hanya berlaku untuk customer milik client ini.";
+    el.registrationStatusBadge.textContent = "Menunggu";
+    el.registrationStatusBadge.className = "status status-idle";
+    el.registrationSummaryBox.textContent = "Belum ada registrasi dipilih.";
+    el.registrationActionStatus.textContent = "Pilih registrasi untuk memulai.";
+    el.approveAmountInput.value = 0;
+    el.approveVirtualAccountInput.value = "";
+    return;
+  }
+
+  const latestPayment = (item.payments || [])[0] || {};
+  el.registrationDetailTitle.textContent = `Registrasi #${item.id}`;
+  el.registrationMeta.textContent = `${item.device_identifier || "Device tidak diketahui"} · ${item.updated_at || "-"}`;
+  el.registrationStatusBadge.textContent = item.status || "unknown";
+  el.registrationStatusBadge.className =
+    "status " + (item.status === "active" ? "status-success" : item.status === "registered" ? "status-loading" : "status-idle");
+  el.registrationSummaryBox.innerHTML = `
+    <div class="registration-summary-grid">
+      <div><span>ID Customer</span><strong>${escapeHtml(item.customer_code || "-")}</strong></div>
+      <div><span>Nama</span><strong>${escapeHtml(item.name || item.default_name || "-")}</strong></div>
+      <div><span>WhatsApp</span><strong>${escapeHtml(item.phone || item.default_phone || item.sender_number || "-")}</strong></div>
+      <div><span>Email</span><strong>${escapeHtml(item.email || "-")}</strong></div>
+      <div class="registration-summary-wide"><span>Alamat</span><strong>${escapeHtml(item.address || "-")}</strong></div>
+      <div class="registration-summary-wide"><span>Maps</span><strong>${escapeHtml(item.maps_link || "-")}</strong></div>
+      <div><span>Virtual Account</span><strong>${escapeHtml(item.virtual_account || "-")}</strong></div>
+      <div><span>Pembayaran Terakhir</span><strong>${escapeHtml(latestPayment.status || "-")} ${latestPayment.amount ? `· ${escapeHtml(formatCurrency(latestPayment.amount))}` : ""}</strong></div>
+      <div class="registration-summary-wide"><span>URL Pembayaran</span><strong>${escapeHtml(item.payment_url || "-")}</strong></div>
+    </div>
+  `;
+  el.approveVirtualAccountInput.value = item.virtual_account || "";
+  el.approveAmountInput.value = latestPayment.amount || 0;
+  if (item.payment_method) {
+    el.approvePaymentMethodSelect.value = item.payment_method;
+  }
+  el.registrationActionStatus.textContent = "Pilih proses yang sesuai dengan status registrasi.";
+}
+
+async function loadRegistrations() {
+  const params = new URLSearchParams({
+    status: el.registrationStatusFilter.value || "registered",
+    limit: String(Number.parseInt(el.registrationLimitInput.value, 10) || 100),
+  });
+  el.registrationActionStatus.textContent = "Memuat registrasi...";
+  const data = await dashboardApi(`/registrations/items?${params.toString()}`);
+  state.registrations = data.items || [];
+  if (!state.registrations.some((item) => item.id === state.selectedRegistrationId)) {
+    state.selectedRegistrationId = state.registrations[0]?.id || null;
+  }
+  renderRegistrations();
+  renderRegistrationDetail();
+}
+
+function updateRegistrationInState(updated) {
+  const exists = state.registrations.some((item) => item.id === updated.id);
+  state.registrations = exists
+    ? state.registrations.map((item) => (item.id === updated.id ? updated : item))
+    : [updated, ...state.registrations];
+  state.selectedRegistrationId = updated.id;
+  renderRegistrations();
+  renderRegistrationDetail();
+}
+
+async function approveSelectedRegistration() {
+  const item = selectedRegistration();
+  if (!item) return;
+  el.registrationActionStatus.textContent = "Memproses approval...";
+  const data = await dashboardApi(`/registrations/${item.id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({
+      amount: Number.parseInt(el.approveAmountInput.value, 10) || 0,
+      payment_method: el.approvePaymentMethodSelect.value,
+      virtual_account: el.approveVirtualAccountInput.value.trim() || null,
+    }),
+  });
+  updateRegistrationInState(data.item);
+  el.registrationActionStatus.textContent = "Registrasi berhasil di-approve dan notifikasi customer diproses.";
+}
+
+async function markSelectedRegistrationPaid(paymentMethod) {
+  const item = selectedRegistration();
+  if (!item) return;
+  el.registrationActionStatus.textContent = "Mencatat pembayaran...";
+  const data = await dashboardApi(`/registrations/${item.id}/payment`, {
+    method: "POST",
+    body: JSON.stringify({
+      payment_method: paymentMethod,
+      amount: Number.parseInt(el.approveAmountInput.value, 10) || 0,
+      virtual_account: el.approveVirtualAccountInput.value.trim() || item.virtual_account || null,
+    }),
+  });
+  updateRegistrationInState(data.item);
+  el.registrationActionStatus.textContent = "Pembayaran tersimpan dan notifikasi teknisi diproses.";
+}
+
+async function activateSelectedRegistration() {
+  const item = selectedRegistration();
+  if (!item) return;
+  el.registrationActionStatus.textContent = "Mengaktifkan customer...";
+  const data = await dashboardApi(`/registrations/${item.id}/activate`, {
+    method: "POST",
+    body: JSON.stringify({ notes: "Pemasangan diselesaikan dari Client Dashboard." }),
+  });
+  updateRegistrationInState(data.item);
+  el.registrationActionStatus.textContent = "Customer aktif dan notifikasi selesai diproses.";
 }
 
 function selectedLearningItem() {
@@ -483,8 +665,9 @@ async function login(event) {
   el.loginButton.disabled = true;
   el.loginMessage.textContent = "Masuk...";
   try {
-    const response = await fetch("/api/v1/client-dashboard/auth/login", {
+    const response = await fetch("/api/v1/client/auth/login", {
       method: "POST",
+      credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ identifier, password }),
     });
@@ -492,10 +675,10 @@ async function login(event) {
     if (!response.ok) {
       throw new Error(data.detail || "Login gagal.");
     }
-    persistToken(data.access_token, data.expires_at);
+    persistSession(data.expires_at);
     state.client = data.client;
     el.loginPassword.value = "";
-    await loadDashboard();
+    window.location.replace("/client-dashboard");
   } catch (error) {
     el.loginMessage.textContent = error.message || String(error);
   } finally {
@@ -504,10 +687,6 @@ async function login(event) {
 }
 
 async function loadDashboard() {
-  if (!state.token) {
-    clearSession("Silakan login untuk membuka dashboard.");
-    return;
-  }
   if (isSessionExpired()) {
     clearSession(SESSION_EXPIRED_MESSAGE);
     return;
@@ -524,10 +703,11 @@ async function loadDashboard() {
     loadCustomers(),
     loadPackages(),
     loadBilling(),
+    loadRegistrations(),
     loadLearningIntents(),
     loadLearningQueue(),
   ]);
-  switchView(state.currentView);
+  switchView(state.currentView, { updateUrl: true });
   setStatus("Data terbaru", "success");
 }
 
@@ -639,7 +819,12 @@ function bindEvents() {
   });
 
   el.logoutButton.addEventListener("click", () => {
-    clearSession("Anda sudah keluar.");
+    dashboardApi("/auth/logout", { method: "POST" })
+      .catch(() => {})
+      .finally(() => {
+        clearSessionState();
+        window.location.replace("/login/client");
+      });
   });
 
   el.refreshButton.addEventListener("click", () => {
@@ -664,6 +849,35 @@ function bindEvents() {
   });
   el.billingStatusFilter.addEventListener("change", () => {
     loadBilling().catch(showFatalError);
+  });
+  el.refreshRegistrationsButton.addEventListener("click", () => {
+    loadRegistrations().catch(showFatalError);
+  });
+  el.registrationStatusFilter.addEventListener("change", () => {
+    state.selectedRegistrationId = null;
+    loadRegistrations().catch(showFatalError);
+  });
+  el.registrationLimitInput.addEventListener("change", () => {
+    loadRegistrations().catch(showFatalError);
+  });
+  el.registrationsList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-registration-id]");
+    if (!button) return;
+    state.selectedRegistrationId = Number.parseInt(button.dataset.registrationId, 10);
+    renderRegistrations();
+    renderRegistrationDetail();
+  });
+  el.approveRegistrationButton.addEventListener("click", () => {
+    approveSelectedRegistration().catch(showFatalError);
+  });
+  el.cashPaymentButton.addEventListener("click", () => {
+    markSelectedRegistrationPaid("cash").catch(showFatalError);
+  });
+  el.bankPaymentButton.addEventListener("click", () => {
+    markSelectedRegistrationPaid("bank_transfer").catch(showFatalError);
+  });
+  el.activateRegistrationButton.addEventListener("click", () => {
+    activateSelectedRegistration().catch(showFatalError);
   });
   el.learningStatusFilter.addEventListener("change", () => {
     state.selectedLearningId = null;
@@ -692,9 +906,16 @@ function showFatalError(error) {
 async function bootstrap() {
   bindEvents();
   await loadRuntimeVersion();
-  if (!state.token) {
-    showLogin("Silakan login untuk membuka dashboard.");
-    return;
+  state.currentView = clientViewFromPath(window.location.pathname);
+  if (window.location.pathname === "/login/client") {
+    try {
+      await dashboardApi("/auth/me");
+      window.location.replace("/client-dashboard");
+      return;
+    } catch (error) {
+      showLogin("Silakan login untuk membuka dashboard.");
+      return;
+    }
   }
   try {
     await loadDashboard();

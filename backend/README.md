@@ -17,10 +17,17 @@ uvicorn app.main:app --reload
 Setelah server jalan, dashboard client ISP tersedia di:
 
 ```text
-http://127.0.0.1:8000/dashboard
+http://127.0.0.1:8000/client-dashboard
 ```
 
-Dashboard memakai login client dan Bearer token untuk mengambil data.
+Dashboard memakai login Client dan session cookie HttpOnly. Bearer token tetap
+diterima sementara untuk compatibility API, tetapi frontend tidak lagi menyimpan
+token di `localStorage`.
+
+Approval registrasi, pencatatan pembayaran, dan aktivasi customer berada di
+`/client-dashboard/registrations` dengan API `/api/v1/client/registrations/*`.
+Tenant selalu berasal dari session Client; `client_id` dari URL atau request body
+tidak digunakan sebagai sumber identitas tenant.
 Credential development default akan dibuat di tabel `clients`:
 
 ```text
@@ -30,7 +37,8 @@ Password: password
 
 Ganti lewat `CLIENT_DASHBOARD_SEED_EMAIL` dan
 `CLIENT_DASHBOARD_SEED_PASSWORD` sebelum database pertama kali dibuat.
-SQLite explorer legacy tetap tersedia di `/sqlexplorer`.
+Provider Dashboard tersedia di `/sqlexplore`. Route lama `/sqlexplorer`
+melakukan redirect permanen ke route canonical tersebut.
 
 File SQLite yang bisa dipilih dari dashboard dapat dikonfigurasi lewat
 `SQLITE_EXPLORER_SOURCES_JSON`. Contoh:
@@ -39,8 +47,9 @@ File SQLite yang bisa dipilih dari dashboard dapat dikonfigurasi lewat
 SQLITE_EXPLORER_SOURCES_JSON=[{"name":"Chat Database","path":"data/chat.sqlite3"},{"name":"Temp DB","path":"/private/tmp/sample.sqlite3"}]
 ```
 
-Kalau `DASHBOARD_SECRET` diisi, dashboard akan meminta login sebelum data
-SQLite bisa dibuka.
+`DASHBOARD_SECRET` wajib dikonfigurasi untuk login Provider. Tanpa secret,
+Provider Dashboard tetap terkunci dan endpoint login mengembalikan configuration
+error; tidak ada mode Provider auto-authenticated.
 
 ## Tes Kirim WhatsApp dari CLI
 
@@ -78,7 +87,7 @@ Endpoint:
 ```text
 GET /api/v1/webhooks/fonnte
 POST /api/v1/webhooks/fonnte
-POST /api/v1/chat/agent/preview
+POST /api/v1/provider/chat/agent/preview
 ```
 
 Kalau ingin endpoint lebih aman, isi `FONNTE_WEBHOOK_SECRET` lalu pasang webhook URL dengan query string:
@@ -99,6 +108,7 @@ LLM_RESPONSE_ENABLED=true
 CONVERSATION_STATE_TTL_HOURS=48
 CLIENT_DASHBOARD_JWT_SECRET=
 CLIENT_DASHBOARD_TOKEN_HOURS=2
+CLIENT_DASHBOARD_COOKIE_NAME=client_dashboard_session
 CLIENT_DASHBOARD_SEED_EMAIL=admin@isp.local
 CLIENT_DASHBOARD_SEED_PASSWORD=password
 BILLING_SAMPLE_XLSX_PATH=contoh-list-billing.xlsx
@@ -171,44 +181,51 @@ POST /api/v1/webhooks/fonnte
 Endpoint pengelolaan data chat:
 
 ```text
-GET  /api/v1/chat/accounts
-POST /api/v1/chat/accounts
-GET  /api/v1/chat/clients
-POST /api/v1/chat/clients
-POST /api/v1/chat/devices
-GET  /api/v1/chat/stock-products
-POST /api/v1/chat/stock-products
-GET  /api/v1/chat/internet-packages
-POST /api/v1/chat/agent/preview
-GET  /api/v1/chat/learning/intents
-GET  /api/v1/chat/learning/unprocessed
-POST /api/v1/chat/learning/unprocessed/{question_id}/map
-POST /api/v1/chat/learning/unprocessed/{question_id}/suggest
-GET  /api/v1/chat/conversations
-GET  /api/v1/chat/conversations/{conversation_id}/messages
+GET  /api/v1/provider/chat/accounts
+POST /api/v1/provider/chat/accounts
+GET  /api/v1/provider/chat/clients
+POST /api/v1/provider/chat/clients
+POST /api/v1/provider/chat/devices
+GET  /api/v1/provider/chat/stock-products
+POST /api/v1/provider/chat/stock-products
+GET  /api/v1/provider/chat/internet-packages
+POST /api/v1/provider/chat/agent/preview
+GET  /api/v1/provider/chat/learning/intents
+GET  /api/v1/provider/chat/learning/unprocessed
+POST /api/v1/provider/chat/learning/unprocessed/{question_id}/map
+POST /api/v1/provider/chat/learning/unprocessed/{question_id}/suggest
+GET  /api/v1/provider/chat/conversations
+GET  /api/v1/provider/chat/conversations/{conversation_id}/messages
+```
+
+Semua endpoint Provider memerlukan session Provider. Login dan simpan cookie
+sebelum memakai contoh `curl` di bawah:
+
+```bash
+curl -c provider.cookies -X POST http://127.0.0.1:8000/api/v1/provider/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"password":"isi-DASHBOARD_SECRET"}'
 ```
 
 Endpoint dashboard client:
 
 ```text
-POST /api/v1/client-dashboard/auth/login
-GET  /api/v1/client-dashboard/auth/me
-GET  /api/v1/client-dashboard/summary
-GET  /api/v1/client-dashboard/devices
-GET  /api/v1/client-dashboard/customers
-GET  /api/v1/client-dashboard/packages
-GET  /api/v1/client-dashboard/billing
-GET  /api/v1/client-dashboard/learning/intents
-GET  /api/v1/client-dashboard/learning/unprocessed
-POST /api/v1/client-dashboard/learning/unprocessed/{question_id}/map
-POST /api/v1/client-dashboard/agent/preview
+POST /api/v1/client/auth/login
+GET  /api/v1/client/auth/me
+POST /api/v1/client/auth/logout
+GET  /api/v1/client/summary
+GET  /api/v1/client/devices
+GET  /api/v1/client/customers
+GET  /api/v1/client/packages
+GET  /api/v1/client/billing
+GET  /api/v1/client/learning/intents
+GET  /api/v1/client/learning/unprocessed
+POST /api/v1/client/learning/unprocessed/{question_id}/map
+POST /api/v1/client/agent/preview
 ```
 
-Semua endpoint dashboard selain login memakai header:
-
-```text
-Authorization: Bearer <access_token>
-```
+Semua endpoint dashboard selain login memakai session cookie HttpOnly. Header
+`Authorization: Bearer <access_token>` tetap diterima selama masa migrasi.
 
 Session dashboard client berlaku 2 jam secara default melalui
 `CLIENT_DASHBOARD_TOKEN_HOURS=2`.
@@ -218,7 +235,7 @@ mengimpor contoh billing menjadi `customers`, `internet_packages`, dan
 `billing_records` untuk client default.
 
 Untuk production, data billing/customer asli tidak perlu dicommit ke Git. Buka
-`/sqlexplorer`, login dengan `DASHBOARD_SECRET`, masuk tab **SQLite Explorer**,
+`/sqlexplore`, login dengan `DASHBOARD_SECRET`, masuk tab **SQLite Explorer**,
 lalu gunakan panel **Import Billing XLSX**. Pilih client, device, dan file
 `.xlsx`; backend akan meng-upsert data ke SQLite:
 
@@ -231,7 +248,7 @@ file yang sama bisa diupload ulang tanpa menggandakan row.
 
 Endpoint data yang discope device menerima parameter `client_id` atau
 `client_token` bersama `device_id` atau `device_identifier`. Untuk
-`POST /api/v1/chat/stock-products`, client dan device wajib dikirim agar stok
+`POST /api/v1/provider/chat/stock-products`, client dan device wajib dikirim agar stok
 tidak tercampur antar device.
 
 ## Learning Queue untuk Pertanyaan yang Belum Terproses
@@ -239,7 +256,7 @@ tidak tercampur antar device.
 Saat webhook menerima pesan dan agent menghasilkan intent `unknown` atau confidence
 di bawah ambang aman, pesan tersebut tetap dibalas sesuai flow saat ini, tetapi
 juga disalin ke tabel `unprocessed_questions`. Dashboard di
-`http://127.0.0.1:8000/dashboard` menampilkan view **Learn Process** untuk:
+`http://127.0.0.1:8000/client-dashboard` menampilkan view **Learn Process** untuk:
 
 1. Melihat pertanyaan customer yang belum dipahami native system.
 2. Memilih intent yang benar.
@@ -251,7 +268,7 @@ Mapping yang disimpan langsung masuk SQLite (`sample_utterances` dan/atau
 fallback ke API OpenAI.
 
 Jika `OPENAI_API_KEY` tersedia, endpoint operasional
-`POST /api/v1/chat/learning/unprocessed/{question_id}/suggest` tetap bisa
+`POST /api/v1/provider/chat/learning/unprocessed/{question_id}/suggest` tetap bisa
 dipakai untuk meminta saran mapping. Saran ini tidak auto-save; reviewer tetap
 perlu memeriksa intent, mapping type, keyword, normalized keyword, dan weight
 sebelum menyimpan mapping. Model default adalah `gpt-4o-mini` dan bisa diganti
@@ -298,7 +315,8 @@ Contoh alur setup:
 Contoh membuat account:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/chat/accounts \
+curl -X POST http://127.0.0.1:8000/api/v1/provider/chat/accounts \
+  -b provider.cookies \
   -H "Content-Type: application/json" \
   -d '{"name":"ISP Bandung Fiber","slug":"isp-bandung-fiber"}'
 ```
@@ -306,7 +324,8 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat/accounts \
 Contoh membuat client:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/chat/clients \
+curl -X POST http://127.0.0.1:8000/api/v1/provider/chat/clients \
+  -b provider.cookies \
   -H "Content-Type: application/json" \
   -d '{"account_slug":"isp-bandung-fiber","name":"Sales WhatsApp Utama"}'
 ```
@@ -314,7 +333,8 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat/clients \
 Contoh register device:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/chat/devices \
+curl -X POST http://127.0.0.1:8000/api/v1/provider/chat/devices \
+  -b provider.cookies \
   -H "Content-Type: application/json" \
   -d '{
     "client_token":"isi_token_dari_endpoint_client",
@@ -327,7 +347,8 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat/devices \
 Contoh test agent tanpa kirim WhatsApp:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/chat/agent/preview \
+curl -X POST http://127.0.0.1:8000/api/v1/provider/chat/agent/preview \
+  -b provider.cookies \
   -H "Content-Type: application/json" \
   -d '{"message":"Halo kak, saya mau pasang internet rumah 30 Mbps di Cibiru"}'
 ```

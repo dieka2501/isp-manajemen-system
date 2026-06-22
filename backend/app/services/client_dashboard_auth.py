@@ -5,11 +5,22 @@ import hashlib
 import hmac
 import json
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import HTTPException, status
 
 from app.core.config import Settings
+from app.auth.roles import ActorRole
+from app.client_dashboard.permissions import ALL_CLIENT_PERMISSIONS
+
+
+@dataclass(frozen=True)
+class ClientAuthSession:
+    client_id: int
+    actor: str
+    expires_at: int
+    permissions: tuple[str, ...]
 
 
 class ClientDashboardTokenService:
@@ -21,9 +32,11 @@ class ClientDashboardTokenService:
         expires_at = now + (self.settings.client_dashboard_token_hours * 3600)
         header = {"alg": "HS256", "typ": "JWT"}
         payload = {
+            "actor": ActorRole.CLIENT.value,
             "sub": str(client_id),
             "iat": now,
             "exp": expires_at,
+            "permissions": sorted(ALL_CLIENT_PERMISSIONS),
         }
         signing_input = ".".join(
             [
@@ -34,26 +47,79 @@ class ClientDashboardTokenService:
         signature = self._sign(signing_input)
         return f"{signing_input}.{signature}", expires_at
 
-    def require_client_id(self, authorization: str | None) -> int:
-        if not authorization or not authorization.startswith("Bearer "):
+    def require_session(
+        self,
+        authorization: str | None = None,
+        cookie_token: str | None = None,
+        permission: str | None = None,
+    ) -> ClientAuthSession:
+        token = None
+        if authorization and authorization.startswith("Bearer "):
+            token = authorization.removeprefix("Bearer ").strip()
+        if not token:
+            token = cookie_token
+        if not token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Bearer token is required.",
+                detail="Client dashboard session is required.",
             )
-        token = authorization.removeprefix("Bearer ").strip()
-        payload = self._decode_token(token)
-        if not payload:
+        actor = self.actor_from_token(token)
+        if actor and actor != ActorRole.CLIENT.value:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Client role is required.",
+            )
+        session = self.session_from_token(token)
+        if not session:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired token.",
             )
-        try:
-            return int(payload["sub"])
-        except (KeyError, TypeError, ValueError) as exc:
+        if permission and permission not in session.permissions:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token subject.",
-            ) from exc
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Client permission `{permission}` is required.",
+            )
+        return session
+
+    def require_client_id(
+        self,
+        authorization: str | None = None,
+        cookie_token: str | None = None,
+    ) -> int:
+        return self.require_session(authorization, cookie_token).client_id
+
+    def session_from_token(self, token: str | None) -> ClientAuthSession | None:
+        if not token:
+            return None
+        payload = self._decode_token(token)
+        if not payload:
+            return None
+        actor = str(payload.get("actor") or ActorRole.CLIENT.value)
+        if actor != ActorRole.CLIENT.value:
+            return None
+        try:
+            client_id = int(payload["sub"])
+            expires_at = int(payload["exp"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        permissions = payload.get("permissions")
+        if not isinstance(permissions, list):
+            permissions = sorted(ALL_CLIENT_PERMISSIONS)
+        return ClientAuthSession(
+            client_id=client_id,
+            actor=actor,
+            expires_at=expires_at,
+            permissions=tuple(str(permission) for permission in permissions),
+        )
+
+    def actor_from_token(self, token: str | None) -> str | None:
+        if not token:
+            return None
+        payload = self._decode_token(token)
+        if not payload:
+            return None
+        return str(payload.get("actor") or ActorRole.CLIENT.value)
 
     def _decode_token(self, token: str) -> dict[str, Any] | None:
         parts = token.split(".")

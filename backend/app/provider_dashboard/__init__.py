@@ -1,0 +1,1 @@
+"""Provider dashboard boundary."""
