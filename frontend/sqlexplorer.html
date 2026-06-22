@@ -15,7 +15,7 @@
       rel="stylesheet"
     />
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="/sqlexplorer-assets/sqlexplorer.css?v=runtime-version-20260618" />
+    <link rel="stylesheet" href="/provider-dashboard-assets/sqlexplorer.css?v=runtime-version-20260618" />
   </head>
   <body>
     <div id="authGate" class="auth-gate hidden">
@@ -58,12 +58,7 @@
               Map unanswered customer questions into native intent data so the system can answer more before using OpenAI APIs.
             </p>
           </div>
-          <div class="inline-flex w-fit flex-wrap gap-2 rounded-2xl border border-white/10 bg-white/5 p-2" role="tablist" aria-label="Dashboard views">
-            <button id="learningTab" class="action-button action-primary tab-button is-active" type="button" role="tab" aria-selected="true">Learning Queue</button>
-            <button id="dumpTab" class="action-button action-secondary tab-button" type="button" role="tab" aria-selected="false">Message Dumps</button>
-            <button id="registrationsTab" class="action-button action-secondary tab-button" type="button" role="tab" aria-selected="false">Registrations</button>
-            <button id="explorerTab" class="action-button action-secondary tab-button" type="button" role="tab" aria-selected="false">SQLite Explorer</button>
-          </div>
+          <div id="providerNavigation" class="inline-flex w-fit flex-wrap gap-2 rounded-2xl border border-white/10 bg-white/5 p-2" role="tablist" aria-label="Dashboard views"></div>
         </div>
         <div class="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200">
           <div class="font-medium">Connection status</div>
@@ -248,83 +243,6 @@
         </section>
       </section>
 
-      <section id="registrationsView" class="hidden grid gap-6 lg:grid-cols-[420px_1fr]">
-        <aside class="glass-panel flex min-h-[680px] flex-col overflow-hidden">
-          <div class="border-b border-white/10 p-5">
-            <div class="flex items-center justify-between gap-3">
-              <div>
-                <h2 class="text-lg font-semibold text-white">Customer Registrations</h2>
-                <p id="registrationsCount" class="text-sm text-slate-400">No registrations loaded.</p>
-              </div>
-              <button id="refreshRegistrationsButton" class="action-button action-secondary" type="button">Refresh</button>
-            </div>
-            <div class="mt-4 grid gap-3 sm:grid-cols-[1fr_110px]">
-              <label class="space-y-2">
-                <span class="section-label">Status</span>
-                <select id="registrationStatusFilter" class="control-input">
-                  <option value="registered">Registered</option>
-                  <option value="approved">Approved</option>
-                  <option value="paid">Paid</option>
-                  <option value="active">Active</option>
-                  <option value="draft">Draft</option>
-                  <option value="rejected">Rejected</option>
-                  <option value="all">All</option>
-                </select>
-              </label>
-              <label class="space-y-2">
-                <span class="section-label">Limit</span>
-                <input id="registrationLimitInput" class="control-input" type="number" min="1" max="200" value="100" />
-              </label>
-            </div>
-          </div>
-          <div id="registrationsList" class="custom-scroll flex-1 overflow-auto p-3"></div>
-        </aside>
-
-        <section class="space-y-6 min-w-0">
-          <div class="glass-panel p-5">
-            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <h2 id="registrationDetailTitle" class="text-lg font-semibold text-white">Select a registration</h2>
-                <p id="registrationMeta" class="mt-1 text-sm text-slate-400">Approve, mark paid, or activate a selected customer.</p>
-              </div>
-              <span id="registrationStatusBadge" class="status-pill status-idle">Waiting</span>
-            </div>
-            <div id="registrationSummaryBox" class="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm leading-6 text-slate-200">
-              No registration selected.
-            </div>
-          </div>
-
-          <div class="glass-panel p-5">
-            <h2 class="text-lg font-semibold text-white">Registration Actions</h2>
-            <div class="mt-4 grid gap-4 lg:grid-cols-3">
-              <label class="space-y-2">
-                <span class="section-label">Amount</span>
-                <input id="approveAmountInput" class="control-input" type="number" min="0" value="0" />
-              </label>
-              <label class="space-y-2">
-                <span class="section-label">Payment method</span>
-                <select id="approvePaymentMethodSelect" class="control-input">
-                  <option value="virtual_account">Virtual Account</option>
-                  <option value="bank_transfer">Bank Transfer</option>
-                  <option value="cash">Cash</option>
-                </select>
-              </label>
-              <label class="space-y-2">
-                <span class="section-label">Virtual account</span>
-                <input id="approveVirtualAccountInput" class="control-input" type="text" placeholder="Auto if empty" />
-              </label>
-            </div>
-            <div class="mt-4 flex flex-wrap gap-3">
-              <button id="approveRegistrationButton" class="action-button action-primary" type="button">Approve</button>
-              <button id="cashPaymentButton" class="action-button action-secondary" type="button">Cash paid</button>
-              <button id="bankPaymentButton" class="action-button action-secondary" type="button">Bank paid</button>
-              <button id="activateRegistrationButton" class="action-button action-secondary" type="button">Activate</button>
-            </div>
-            <div id="registrationActionStatus" class="mt-4 text-sm text-slate-400">Select a registration to begin.</div>
-          </div>
-        </section>
-      </section>
-
       <section id="explorerView" class="hidden space-y-6">
       <section class="glass-panel p-5">
         <div class="grid gap-4 lg:grid-cols-[1.2fr_1.2fr_auto] lg:items-end">
@@ -479,6 +397,6 @@
       </div>
     </div>
 
-    <script src="/sqlexplorer-assets/sqlexplorer.js?v=runtime-version-20260618" defer></script>
+    <script type="module" src="/provider-dashboard-assets/sqlexplorer.js?v=runtime-version-20260618"></script>
   </body>
 </html>

@@ -181,19 +181,48 @@ class ClientDashboardTests(unittest.TestCase):
                 address="Jl. Soreang No 1",
                 maps_link="https://maps.example.test/customer",
             )
+            wrong_client_id = stored.device.client_id + 999
+            self.assertEqual(
+                store.list_customer_registrations(
+                    status_filter="all",
+                    client_id=wrong_client_id,
+                ),
+                [],
+            )
+            with self.assertRaisesRegex(ValueError, "not found"):
+                store.approve_customer_registration(
+                    registration_id=registered["id"],
+                    amount=150000,
+                    client_id=wrong_client_id,
+                )
+            with self.assertRaisesRegex(ValueError, "not found"):
+                store.record_registration_payment(
+                    registration_id=registered["id"],
+                    payment_method="cash",
+                    amount=150000,
+                    client_id=wrong_client_id,
+                )
+            with self.assertRaisesRegex(ValueError, "not found"):
+                store.complete_customer_installation(
+                    registration_id=registered["id"],
+                    client_id=wrong_client_id,
+                )
             approved = store.approve_customer_registration(
                 registration_id=registered["id"],
                 amount=150000,
+                client_id=stored.device.client_id,
             )
             paid = store.record_registration_payment(
                 registration_id=registered["id"],
                 payment_method="cash",
                 amount=150000,
                 reference_number="CASH-1",
+                client_id=stored.device.client_id,
             )
             active = store.complete_customer_installation(
                 registration_id=registered["id"],
                 notes="Installed",
+                client_id=stored.device.client_id,
             )
             customers = store.list_customers(
                 client_id=stored.device.client_id,

@@ -9,7 +9,7 @@
       content="Dashboard client ISP untuk melihat customer, paket, billing, dan learning queue."
     />
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="/dashboard-assets/styles.css?v=runtime-version-20260618" />
+    <link rel="stylesheet" href="/client-dashboard-assets/styles.css?v=runtime-version-20260618" />
   </head>
   <body>
     <section id="loginView" class="login-view">
@@ -41,13 +41,7 @@
             <p id="sidebarClientName" class="text-xs text-slate-300">Loading...</p>
           </div>
         </div>
-        <nav class="nav-list" aria-label="Menu dashboard">
-          <button class="nav-item is-active" type="button" data-view="overview">Ringkasan</button>
-          <button class="nav-item" type="button" data-view="customers">Customer</button>
-          <button class="nav-item" type="button" data-view="packages">Paket</button>
-          <button class="nav-item" type="button" data-view="billing">Billing</button>
-          <button class="nav-item" type="button" data-view="learning">Learn Process</button>
-        </nav>
+        <nav id="clientNavigation" class="nav-list" aria-label="Menu dashboard"></nav>
         <button id="logoutButton" class="button button-danger mt-auto" type="button">Keluar</button>
         <div id="runtimeVersion" class="runtime-version">Version loading...</div>
       </aside>
@@ -135,6 +129,81 @@
           </section>
         </section>
 
+        <section id="registrationsView" class="view hidden registration-layout">
+          <aside class="panel registration-list-panel">
+            <div class="panel-header">
+              <div>
+                <h2>Registrasi Customer</h2>
+                <span id="registrationsCount" class="text-sm text-slate-500">0 data</span>
+              </div>
+              <button id="refreshRegistrationsButton" class="button button-secondary" type="button">Refresh</button>
+            </div>
+            <div class="registration-filters">
+              <label class="field">
+                <span>Status</span>
+                <select id="registrationStatusFilter" class="input">
+                  <option value="registered">Registered</option>
+                  <option value="approved">Approved</option>
+                  <option value="paid">Paid</option>
+                  <option value="active">Active</option>
+                  <option value="draft">Draft</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="all">Semua</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Limit</span>
+                <input id="registrationLimitInput" class="input" type="number" min="1" max="200" value="100" />
+              </label>
+            </div>
+            <div id="registrationsList" class="registration-list"></div>
+          </aside>
+
+          <section class="space-y-5 min-w-0">
+            <div class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2 id="registrationDetailTitle">Pilih registrasi</h2>
+                  <p id="registrationMeta" class="mt-1 text-sm text-slate-500">Approval hanya berlaku untuk customer milik client ini.</p>
+                </div>
+                <span id="registrationStatusBadge" class="status status-idle">Menunggu</span>
+              </div>
+              <div id="registrationSummaryBox" class="registration-summary">Belum ada registrasi dipilih.</div>
+            </div>
+
+            <div class="panel registration-actions">
+              <div class="panel-header">
+                <h2>Proses Registrasi</h2>
+              </div>
+              <div class="registration-action-fields">
+                <label class="field">
+                  <span>Nominal</span>
+                  <input id="approveAmountInput" class="input" type="number" min="0" value="0" />
+                </label>
+                <label class="field">
+                  <span>Metode pembayaran</span>
+                  <select id="approvePaymentMethodSelect" class="input">
+                    <option value="virtual_account">Virtual Account</option>
+                    <option value="bank_transfer">Transfer Bank</option>
+                    <option value="cash">Cash</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Virtual account</span>
+                  <input id="approveVirtualAccountInput" class="input" type="text" placeholder="Dibuat otomatis bila kosong" />
+                </label>
+              </div>
+              <div class="registration-action-buttons">
+                <button id="approveRegistrationButton" class="button button-primary" type="button">Approve</button>
+                <button id="cashPaymentButton" class="button button-secondary" type="button">Tandai Cash Lunas</button>
+                <button id="bankPaymentButton" class="button button-secondary" type="button">Tandai Transfer Lunas</button>
+                <button id="activateRegistrationButton" class="button button-secondary" type="button">Aktifkan Customer</button>
+              </div>
+              <p id="registrationActionStatus" class="text-sm text-slate-500">Pilih registrasi untuk memulai.</p>
+            </div>
+          </section>
+        </section>
+
         <section id="learningView" class="view hidden learning-layout">
           <aside class="panel min-w-0">
             <div class="panel-header">
@@ -211,6 +280,6 @@
       </main>
     </section>
 
-    <script src="/dashboard-assets/app.js?v=runtime-version-20260618" defer></script>
+    <script type="module" src="/client-dashboard-assets/app.js?v=runtime-version-20260618"></script>
   </body>
 </html>

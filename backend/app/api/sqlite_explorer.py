@@ -4,26 +4,23 @@ from dataclasses import dataclass
 from email.parser import BytesParser
 from email.policy import default
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
+from app.auth.guards import provider_guard
 from app.core.config import get_settings
+from app.provider_dashboard.permissions import ProviderPermission
 from app.services.billing_import import load_billing_rows_from_bytes
 from app.services.chat_store import SQLiteChatStore
-from app.services.dashboard_auth import DashboardAuthService
 from app.services.sqlite_explorer import SQLiteExplorerService
 
-sqlite_explorer_router = APIRouter(prefix="/sqlite", tags=["sqlite-explorer"])
+sqlite_explorer_router = APIRouter(tags=["provider-sqlite-explorer"])
 
 
 class SQLiteQueryRequest(BaseModel):
     path: str | None = None
     sql: str = Field(min_length=1)
     limit: int = Field(default=250, ge=1, le=1000)
-
-
-class DashboardLoginRequest(BaseModel):
-    password: str = Field(min_length=1)
 
 
 @dataclass(frozen=True)
@@ -39,14 +36,6 @@ def _service() -> SQLiteExplorerService:
 
 def _chat_store() -> SQLiteChatStore:
     return SQLiteChatStore(get_settings())
-
-
-def _auth_service() -> DashboardAuthService:
-    return DashboardAuthService(get_settings())
-
-
-def _require_dashboard_auth(request: Request) -> None:
-    _auth_service().require_auth(request)
 
 
 def _parse_optional_int(value: str | None) -> int | None:
@@ -104,24 +93,10 @@ def _parse_multipart_form(
     return fields, files
 
 
-@sqlite_explorer_router.get("/auth/status")
-def auth_status(request: Request) -> dict[str, object]:
-    return _auth_service().status(request).as_dict()
-
-
-@sqlite_explorer_router.post("/auth/login")
-def auth_login(payload: DashboardLoginRequest, response: Response) -> dict[str, object]:
-    state = _auth_service().login(payload.password, response)
-    return state.as_dict()
-
-
-@sqlite_explorer_router.post("/auth/logout")
-def auth_logout(response: Response) -> dict[str, str]:
-    _auth_service().logout(response)
-    return {"status": "ok"}
-
-
-@sqlite_explorer_router.get("/sources", dependencies=[Depends(_require_dashboard_auth)])
+@sqlite_explorer_router.get(
+    "/sources",
+    dependencies=[Depends(provider_guard(ProviderPermission.SQLITE_MANAGE))],
+)
 def list_sources() -> dict[str, object]:
     items = _service().list_sources()
     default_source = items[0].as_dict() if items else None
@@ -133,7 +108,7 @@ def list_sources() -> dict[str, object]:
 
 @sqlite_explorer_router.get(
     "/billing-import/scopes",
-    dependencies=[Depends(_require_dashboard_auth)],
+    dependencies=[Depends(provider_guard(ProviderPermission.BILLING_MANAGE))],
 )
 def list_billing_import_scopes() -> dict[str, object]:
     return {"items": _chat_store().billing_import_scopes()}
@@ -141,7 +116,7 @@ def list_billing_import_scopes() -> dict[str, object]:
 
 @sqlite_explorer_router.post(
     "/billing-import",
-    dependencies=[Depends(_require_dashboard_auth)],
+    dependencies=[Depends(provider_guard(ProviderPermission.BILLING_MANAGE))],
 )
 async def import_billing_workbook(request: Request) -> dict[str, object]:
     body = await request.body()
@@ -183,7 +158,10 @@ async def import_billing_workbook(request: Request) -> dict[str, object]:
     }
 
 
-@sqlite_explorer_router.get("/tables", dependencies=[Depends(_require_dashboard_auth)])
+@sqlite_explorer_router.get(
+    "/tables",
+    dependencies=[Depends(provider_guard(ProviderPermission.SQLITE_MANAGE))],
+)
 def list_tables(path: str | None = Query(default=None)) -> dict[str, object]:
     try:
         source = _service().get_source(path)
@@ -196,7 +174,10 @@ def list_tables(path: str | None = Query(default=None)) -> dict[str, object]:
     }
 
 
-@sqlite_explorer_router.post("/query", dependencies=[Depends(_require_dashboard_auth)])
+@sqlite_explorer_router.post(
+    "/query",
+    dependencies=[Depends(provider_guard(ProviderPermission.SQLITE_MANAGE))],
+)
 def run_query(payload: SQLiteQueryRequest) -> dict[str, object]:
     try:
         source = _service().get_source(payload.path)
@@ -213,12 +194,11 @@ def run_query(payload: SQLiteQueryRequest) -> dict[str, object]:
 
 @sqlite_explorer_router.get("/tables/{table_name}")
 def preview_table(
-    request: Request,
     table_name: str,
     path: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=1000),
+    _: object = Depends(provider_guard(ProviderPermission.SQLITE_MANAGE)),
 ) -> dict[str, object]:
-    _require_dashboard_auth(request)
     try:
         source = _service().get_source(path)
         result = _service().preview_table(source.path, table_name, limit=limit)

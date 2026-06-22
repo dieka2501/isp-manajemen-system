@@ -237,6 +237,11 @@ body {
   transition: background 0.16s ease, border-color 0.16s ease;
 }
 
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .button-primary {
   background: var(--primary);
   color: white;
@@ -325,6 +330,28 @@ body {
   color: var(--danger);
 }
 
+.badge-registered,
+.badge-pending {
+  background: #fffaeb;
+  color: var(--warning);
+}
+
+.badge-approved,
+.badge-active {
+  background: #ecfdf3;
+  color: var(--success);
+}
+
+.badge-draft {
+  background: #eef2f7;
+  color: #475467;
+}
+
+.badge-rejected {
+  background: #fef3f2;
+  color: var(--danger);
+}
+
 .table-wrap {
   width: 100%;
   overflow: auto;
@@ -379,6 +406,109 @@ body {
   display: grid;
   grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   gap: 1rem;
+}
+
+.registration-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.registration-list-panel {
+  align-self: start;
+}
+
+.registration-filters,
+.registration-action-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px;
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  padding: 1rem;
+}
+
+.registration-action-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.registration-list {
+  max-height: calc(100vh - 16rem);
+  overflow: auto;
+  padding: 0.75rem;
+}
+
+.registration-item {
+  width: 100%;
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  padding: 0.8rem;
+  color: var(--muted);
+  text-align: left;
+}
+
+.registration-item + .registration-item {
+  margin-top: 0.55rem;
+}
+
+.registration-item:hover,
+.registration-item.is-selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
+}
+
+.registration-item-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--text);
+}
+
+.registration-summary {
+  padding: 1rem;
+}
+
+.registration-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.registration-summary-grid > div {
+  display: grid;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.registration-summary-grid span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.registration-summary-wide {
+  grid-column: 1 / -1;
+}
+
+.registration-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.registration-actions > p {
+  margin: 0;
+  padding: 0 1rem 1rem;
 }
 
 .learning-list {
@@ -442,7 +572,9 @@ body {
   }
 
   .metric-grid,
-  .learning-layout {
+  .learning-layout,
+  .registration-layout,
+  .registration-action-fields {
     grid-template-columns: 1fr;
   }
 

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
+from app.auth.guards import provider_guard
 from app.core.config import get_settings
-from app.services.dashboard_auth import DashboardAuthService
+from app.provider_dashboard.permissions import ProviderPermission
 from app.services.chat_store import SQLiteChatStore
 from app.services.isp_agent import ISPCSAgent
 from app.services.openai_learning import OpenAILearningHelper
 
-chat_router = APIRouter(prefix="/chat", tags=["chat"])
+chat_router = APIRouter(tags=["provider-chat"])
 
 
 class AccountCreateRequest(BaseModel):
@@ -64,16 +65,19 @@ def _store() -> SQLiteChatStore:
     return SQLiteChatStore(get_settings())
 
 
-def _require_dashboard_auth(request: Request) -> None:
-    DashboardAuthService(get_settings()).require_auth(request)
-
-
-@chat_router.get("/accounts")
+@chat_router.get(
+    "/accounts",
+    dependencies=[Depends(provider_guard(ProviderPermission.PLATFORM_READ))],
+)
 def list_accounts() -> dict[str, object]:
     return {"items": _store().list_accounts()}
 
 
-@chat_router.post("/accounts", status_code=status.HTTP_201_CREATED)
+@chat_router.post(
+    "/accounts",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(provider_guard(ProviderPermission.PLATFORM_MANAGE))],
+)
 def create_account(payload: AccountCreateRequest) -> dict[str, object]:
     try:
         account = _store().create_account(name=payload.name, slug=payload.slug)
@@ -82,12 +86,19 @@ def create_account(payload: AccountCreateRequest) -> dict[str, object]:
     return {"item": account}
 
 
-@chat_router.get("/clients")
+@chat_router.get(
+    "/clients",
+    dependencies=[Depends(provider_guard(ProviderPermission.PLATFORM_READ))],
+)
 def list_clients(account_slug: str | None = Query(default=None)) -> dict[str, object]:
     return {"items": _store().list_clients(account_slug=account_slug)}
 
 
-@chat_router.post("/clients", status_code=status.HTTP_201_CREATED)
+@chat_router.post(
+    "/clients",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(provider_guard(ProviderPermission.PLATFORM_MANAGE))],
+)
 def create_client(payload: ClientCreateRequest) -> dict[str, object]:
     try:
         client = _store().create_client(
@@ -105,7 +116,11 @@ def create_client(payload: ClientCreateRequest) -> dict[str, object]:
     return {"item": client}
 
 
-@chat_router.post("/devices", status_code=status.HTTP_201_CREATED)
+@chat_router.post(
+    "/devices",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(provider_guard(ProviderPermission.PLATFORM_MANAGE))],
+)
 def register_device(payload: DeviceRegisterRequest) -> dict[str, object]:
     if payload.client_id is None and payload.client_token is None:
         raise HTTPException(
@@ -127,7 +142,10 @@ def register_device(payload: DeviceRegisterRequest) -> dict[str, object]:
     return {"item": device}
 
 
-@chat_router.get("/stock-products")
+@chat_router.get(
+    "/stock-products",
+    dependencies=[Depends(provider_guard(ProviderPermission.PLATFORM_READ))],
+)
 def list_stock_products(
     client_id: int | None = Query(default=None),
     client_token: str | None = Query(default=None),
@@ -150,7 +168,11 @@ def list_stock_products(
     return {"items": items}
 
 
-@chat_router.post("/stock-products", status_code=status.HTTP_201_CREATED)
+@chat_router.post(
+    "/stock-products",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(provider_guard(ProviderPermission.PLATFORM_MANAGE))],
+)
 def upsert_stock_product(payload: StockProductUpsertRequest) -> dict[str, object]:
     if payload.client_id is None and payload.client_token is None:
         raise HTTPException(
@@ -179,7 +201,10 @@ def upsert_stock_product(payload: StockProductUpsertRequest) -> dict[str, object
     return {"item": item}
 
 
-@chat_router.get("/internet-packages")
+@chat_router.get(
+    "/internet-packages",
+    dependencies=[Depends(provider_guard(ProviderPermission.PLATFORM_READ))],
+)
 def list_internet_packages(
     active_only: bool = Query(default=True),
     client_id: int | None = Query(default=None),
@@ -200,18 +225,27 @@ def list_internet_packages(
     return {"items": items}
 
 
-@chat_router.post("/agent/preview")
+@chat_router.post(
+    "/agent/preview",
+    dependencies=[Depends(provider_guard(ProviderPermission.LEARNING_MANAGE))],
+)
 def preview_agent_reply(payload: AgentPreviewRequest) -> dict[str, object]:
     store = _store()
     return {"item": ISPCSAgent(store.get_intent_agent_catalog()).answer(payload.message).as_dict()}
 
 
-@chat_router.get("/learning/intents", dependencies=[Depends(_require_dashboard_auth)])
+@chat_router.get(
+    "/learning/intents",
+    dependencies=[Depends(provider_guard(ProviderPermission.LEARNING_MANAGE))],
+)
 def list_learning_intents() -> dict[str, object]:
     return {"items": _store().list_intents_for_mapping()}
 
 
-@chat_router.get("/learning/unprocessed", dependencies=[Depends(_require_dashboard_auth)])
+@chat_router.get(
+    "/learning/unprocessed",
+    dependencies=[Depends(provider_guard(ProviderPermission.LEARNING_MANAGE))],
+)
 def list_learning_unprocessed(
     status_filter: str = Query(default="pending", alias="status"),
     limit: int = Query(default=50, ge=1, le=200),
@@ -228,7 +262,7 @@ def list_learning_unprocessed(
 
 @chat_router.post(
     "/learning/unprocessed/{question_id}/map",
-    dependencies=[Depends(_require_dashboard_auth)],
+    dependencies=[Depends(provider_guard(ProviderPermission.LEARNING_MANAGE))],
 )
 def map_learning_unprocessed(
     question_id: int,
@@ -251,7 +285,7 @@ def map_learning_unprocessed(
 
 @chat_router.post(
     "/learning/unprocessed/{question_id}/suggest",
-    dependencies=[Depends(_require_dashboard_auth)],
+    dependencies=[Depends(provider_guard(ProviderPermission.LEARNING_MANAGE))],
 )
 def suggest_learning_mapping(question_id: int) -> dict[str, object]:
     store = _store()
@@ -272,7 +306,10 @@ def suggest_learning_mapping(question_id: int) -> dict[str, object]:
     return {"item": suggestion}
 
 
-@chat_router.get("/conversations")
+@chat_router.get(
+    "/conversations",
+    dependencies=[Depends(provider_guard(ProviderPermission.PLATFORM_READ))],
+)
 def list_conversations(
     limit: int = Query(default=50, ge=1, le=200),
     client_id: int | None = Query(default=None),
@@ -293,7 +330,10 @@ def list_conversations(
     return {"items": items}
 
 
-@chat_router.get("/conversations/{conversation_id}/messages")
+@chat_router.get(
+    "/conversations/{conversation_id}/messages",
+    dependencies=[Depends(provider_guard(ProviderPermission.PLATFORM_READ))],
+)
 def list_messages(
     conversation_id: int,
     limit: int = Query(default=100, ge=1, le=500),

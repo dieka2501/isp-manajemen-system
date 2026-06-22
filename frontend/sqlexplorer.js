@@ -1,3 +1,14 @@
+import { ProviderDashboardLayout } from "/provider-dashboard-assets/provider-dashboard/layouts/provider-dashboard-layout.js";
+import { providerNavigation } from "/provider-dashboard-assets/provider-dashboard/navigation/provider-navigation.js";
+import { providerPermissions } from "/provider-dashboard-assets/provider-dashboard/permissions/provider-permissions.js";
+import { providerRoutes, providerViewFromPath } from "/provider-dashboard-assets/provider-dashboard/routes/provider-routes.js";
+
+new ProviderDashboardLayout({
+  navigation: providerNavigation,
+  permissions: providerPermissions,
+  routes: providerRoutes,
+}).mountNavigation(document.getElementById("providerNavigation"));
+
 const state = {
   sources: [],
   sourcePath: "",
@@ -15,8 +26,6 @@ const state = {
   billingImportScopes: [],
   messageDumps: [],
   selectedDumpId: null,
-  registrations: [],
-  selectedRegistrationId: null,
   runtime: null,
 };
 
@@ -25,11 +34,9 @@ const el = {
   dashboardShell: document.getElementById("dashboardShell"),
   learningTab: document.getElementById("learningTab"),
   dumpTab: document.getElementById("dumpTab"),
-  registrationsTab: document.getElementById("registrationsTab"),
   explorerTab: document.getElementById("explorerTab"),
   learningView: document.getElementById("learningView"),
   messageDumpView: document.getElementById("messageDumpView"),
-  registrationsView: document.getElementById("registrationsView"),
   explorerView: document.getElementById("explorerView"),
   loginForm: document.getElementById("loginForm"),
   passwordInput: document.getElementById("passwordInput"),
@@ -99,23 +106,6 @@ const el = {
   markDumpReviewedButton: document.getElementById("markDumpReviewedButton"),
   markDumpIgnoredButton: document.getElementById("markDumpIgnoredButton"),
   dumpActionStatus: document.getElementById("dumpActionStatus"),
-  refreshRegistrationsButton: document.getElementById("refreshRegistrationsButton"),
-  registrationStatusFilter: document.getElementById("registrationStatusFilter"),
-  registrationLimitInput: document.getElementById("registrationLimitInput"),
-  registrationsList: document.getElementById("registrationsList"),
-  registrationsCount: document.getElementById("registrationsCount"),
-  registrationDetailTitle: document.getElementById("registrationDetailTitle"),
-  registrationMeta: document.getElementById("registrationMeta"),
-  registrationStatusBadge: document.getElementById("registrationStatusBadge"),
-  registrationSummaryBox: document.getElementById("registrationSummaryBox"),
-  approveAmountInput: document.getElementById("approveAmountInput"),
-  approvePaymentMethodSelect: document.getElementById("approvePaymentMethodSelect"),
-  approveVirtualAccountInput: document.getElementById("approveVirtualAccountInput"),
-  approveRegistrationButton: document.getElementById("approveRegistrationButton"),
-  cashPaymentButton: document.getElementById("cashPaymentButton"),
-  bankPaymentButton: document.getElementById("bankPaymentButton"),
-  activateRegistrationButton: document.getElementById("activateRegistrationButton"),
-  registrationActionStatus: document.getElementById("registrationActionStatus"),
 };
 
 const STORAGE_KEYS = {
@@ -179,7 +169,8 @@ function restorePreferences() {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(`/api/v1/sqlite${path}`, {
+  const basePath = path.startsWith("/auth/") ? "/api/v1/provider" : "/api/v1/provider/sqlite";
+  const response = await fetch(`${basePath}${path}`, {
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
@@ -198,7 +189,7 @@ async function api(path, options = {}) {
 }
 
 async function uploadApi(path, formData) {
-  const response = await fetch(`/api/v1/sqlite${path}`, {
+  const response = await fetch(`/api/v1/provider/sqlite${path}`, {
     method: "POST",
     credentials: "same-origin",
     body: formData,
@@ -214,7 +205,7 @@ async function uploadApi(path, formData) {
 }
 
 async function chatApi(path, options = {}) {
-  const response = await fetch(`/api/v1/chat${path}`, {
+  const response = await fetch(`/api/v1/provider/chat${path}`, {
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
@@ -232,8 +223,8 @@ async function chatApi(path, options = {}) {
   return data;
 }
 
-async function registrationApi(path, options = {}) {
-  const response = await fetch(`/api/v1/registrations${path}`, {
+async function messageDumpApi(path, options = {}) {
+  const response = await fetch(`/api/v1/provider/message-dumps${path}`, {
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
@@ -304,16 +295,14 @@ function setCurrentSource(path) {
   persistPreferences();
 }
 
-function switchView(view) {
+function switchView(view, { updateUrl = true } = {}) {
   state.activeView = view;
   el.learningView.classList.toggle("hidden", view !== "learning");
   el.messageDumpView.classList.toggle("hidden", view !== "dumps");
-  el.registrationsView.classList.toggle("hidden", view !== "registrations");
   el.explorerView.classList.toggle("hidden", view !== "explorer");
   const tabs = [
     [el.learningTab, "learning"],
     [el.dumpTab, "dumps"],
-    [el.registrationsTab, "registrations"],
     [el.explorerTab, "explorer"],
   ];
   tabs.forEach(([tab, tabView]) => {
@@ -322,11 +311,11 @@ function switchView(view) {
     tab.classList.toggle("action-secondary", view !== tabView);
     tab.setAttribute("aria-selected", view === tabView ? "true" : "false");
   });
+  if (updateUrl && window.location.pathname.startsWith("/sqlexplore")) {
+    window.history.replaceState({}, "", providerRoutes[view] || providerRoutes.learning);
+  }
   if (view === "dumps" && state.messageDumps.length === 0) {
     loadMessageDumps().catch(showError);
-  }
-  if (view === "registrations" && state.registrations.length === 0) {
-    loadRegistrations().catch(showError);
   }
   if (view === "explorer" && state.billingImportScopes.length === 0) {
     loadBillingImportScopes().catch(showError);
@@ -339,7 +328,11 @@ async function checkAuth() {
   state.authenticated = Boolean(data.authenticated);
   state.secretConfigured = Boolean(data.secret_configured);
 
-  if (state.authenticated) {
+  if (state.authenticated && data.actor === "provider") {
+    if (window.location.pathname === "/login/provider") {
+      window.location.replace("/sqlexplore");
+      return false;
+    }
     showDashboard();
     if (state.secretConfigured) {
       setConnectionStatus("Dashboard unlocked.", "success");
@@ -520,7 +513,7 @@ async function loadMessageDumps() {
   const status = el.dumpStatusFilter.value || "pending";
   const limit = Number.parseInt(el.dumpLimitInput.value, 10) || 100;
   el.dumpActionStatus.textContent = "Loading message dumps...";
-  const data = await registrationApi(`/admin/message-dumps?status=${encodeURIComponent(status)}&limit=${limit}`);
+  const data = await messageDumpApi(`/items?status=${encodeURIComponent(status)}&limit=${limit}`);
   state.messageDumps = data.items || [];
   if (!state.messageDumps.some((item) => item.id === state.selectedDumpId)) {
     state.selectedDumpId = state.messageDumps[0]?.id || null;
@@ -537,7 +530,7 @@ async function reviewSelectedDump(nextStatus) {
     return;
   }
   el.dumpActionStatus.textContent = "Saving review...";
-  const data = await registrationApi(`/admin/message-dumps/${item.id}`, {
+  const data = await messageDumpApi(`/${item.id}`, {
     method: "POST",
     body: JSON.stringify({
       status: nextStatus,
@@ -549,155 +542,6 @@ async function reviewSelectedDump(nextStatus) {
   renderMessageDumps();
   renderMessageDumpDetail();
   el.dumpActionStatus.textContent = "Review saved.";
-}
-
-function selectedRegistration() {
-  return state.registrations.find((item) => item.id === state.selectedRegistrationId) || null;
-}
-
-function renderRegistrations() {
-  el.registrationsCount.textContent = `${state.registrations.length} item(s)`;
-  el.registrationsList.innerHTML = state.registrations.length
-    ? state.registrations
-        .map((item) => {
-          const selected = item.id === state.selectedRegistrationId;
-          return `
-            <button class="learning-card w-full text-left p-4 ${selected ? "is-selected" : ""}" data-registration-id="${item.id}">
-              <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <div class="line-clamp-2 text-sm font-semibold text-white">${escapeHtml(item.name || item.default_name || item.sender_name || item.sender_number)}</div>
-                  <div class="mt-2 text-xs text-slate-400">${escapeHtml(item.phone || item.default_phone || item.sender_number || "-")}</div>
-                </div>
-                <span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-300">${escapeHtml(item.status)}</span>
-              </div>
-              <div class="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
-                <span>${escapeHtml(item.customer_code || "No ID")}</span>
-                <span>${escapeHtml(item.client_name || "-")}</span>
-                <span>${escapeHtml(item.updated_at)}</span>
-              </div>
-            </button>
-          `;
-        })
-        .join("")
-    : `<div class="p-5 text-sm text-slate-400">No registrations found for this filter.</div>`;
-}
-
-function renderRegistrationDetail() {
-  const item = selectedRegistration();
-  if (!item) {
-    el.registrationDetailTitle.textContent = "Select a registration";
-    el.registrationMeta.textContent = "Approve, mark paid, or activate a selected customer.";
-    el.registrationStatusBadge.textContent = "Waiting";
-    el.registrationStatusBadge.className = "status-pill status-idle";
-    el.registrationSummaryBox.textContent = "No registration selected.";
-    el.registrationActionStatus.textContent = "Select a registration to begin.";
-    return;
-  }
-
-  const latestPayment = (item.payments || [])[0] || {};
-  el.registrationDetailTitle.textContent = `Registration #${item.id}`;
-  el.registrationMeta.textContent = `${item.client_name} | ${item.device_identifier} | ${item.updated_at}`;
-  el.registrationStatusBadge.textContent = item.status;
-  el.registrationStatusBadge.className =
-    "status-pill " + (item.status === "active" ? "status-success" : item.status === "registered" ? "status-loading" : "status-idle");
-  el.registrationSummaryBox.innerHTML = `
-    <div class="grid gap-2 md:grid-cols-2">
-      <div><span class="section-label">Customer ID</span><div>${escapeHtml(item.customer_code || "-")}</div></div>
-      <div><span class="section-label">Name</span><div>${escapeHtml(item.name || item.default_name || "-")}</div></div>
-      <div><span class="section-label">WA</span><div>${escapeHtml(item.phone || item.default_phone || item.sender_number || "-")}</div></div>
-      <div><span class="section-label">Email</span><div>${escapeHtml(item.email || "-")}</div></div>
-      <div class="md:col-span-2"><span class="section-label">Address</span><div>${escapeHtml(item.address || "-")}</div></div>
-      <div class="md:col-span-2"><span class="section-label">Maps</span><div>${escapeHtml(item.maps_link || "-")}</div></div>
-      <div><span class="section-label">Virtual Account</span><div>${escapeHtml(item.virtual_account || "-")}</div></div>
-      <div><span class="section-label">Latest Payment</span><div>${escapeHtml(latestPayment.status || "-")} ${latestPayment.amount ? `| Rp ${Number(latestPayment.amount).toLocaleString("id-ID")}` : ""}</div></div>
-      <div class="md:col-span-2"><span class="section-label">Payment URL</span><div>${escapeHtml(item.payment_url || "-")}</div></div>
-    </div>
-  `;
-  el.approveVirtualAccountInput.value = item.virtual_account || "";
-  if (latestPayment.amount) {
-    el.approveAmountInput.value = latestPayment.amount;
-  }
-  if (item.payment_method) {
-    el.approvePaymentMethodSelect.value = item.payment_method;
-  }
-  el.registrationActionStatus.textContent = "Choose an action for this registration.";
-}
-
-async function loadRegistrations() {
-  const status = el.registrationStatusFilter.value || "registered";
-  const limit = Number.parseInt(el.registrationLimitInput.value, 10) || 100;
-  el.registrationActionStatus.textContent = "Loading registrations...";
-  const data = await registrationApi(`/admin/items?status=${encodeURIComponent(status)}&limit=${limit}`);
-  state.registrations = data.items || [];
-  if (!state.registrations.some((item) => item.id === state.selectedRegistrationId)) {
-    state.selectedRegistrationId = state.registrations[0]?.id || null;
-  }
-  renderRegistrations();
-  renderRegistrationDetail();
-  el.registrationActionStatus.textContent = state.registrations.length ? "Registrations loaded." : "No registrations for this filter.";
-}
-
-function updateRegistrationInState(updated) {
-  const exists = state.registrations.some((item) => item.id === updated.id);
-  state.registrations = exists
-    ? state.registrations.map((current) => (current.id === updated.id ? updated : current))
-    : [updated, ...state.registrations];
-  state.selectedRegistrationId = updated.id;
-  renderRegistrations();
-  renderRegistrationDetail();
-}
-
-async function approveSelectedRegistration() {
-  const item = selectedRegistration();
-  if (!item) {
-    el.registrationActionStatus.textContent = "Select a registration first.";
-    return;
-  }
-  el.registrationActionStatus.textContent = "Approving registration...";
-  const data = await registrationApi(`/admin/${item.id}/approve`, {
-    method: "POST",
-    body: JSON.stringify({
-      amount: Number.parseInt(el.approveAmountInput.value, 10) || 0,
-      payment_method: el.approvePaymentMethodSelect.value,
-      virtual_account: el.approveVirtualAccountInput.value.trim() || null,
-    }),
-  });
-  updateRegistrationInState(data.item);
-  el.registrationActionStatus.textContent = "Registration approved.";
-}
-
-async function markSelectedRegistrationPaid(method) {
-  const item = selectedRegistration();
-  if (!item) {
-    el.registrationActionStatus.textContent = "Select a registration first.";
-    return;
-  }
-  el.registrationActionStatus.textContent = "Saving payment...";
-  const data = await registrationApi(`/admin/${item.id}/payment`, {
-    method: "POST",
-    body: JSON.stringify({
-      payment_method: method,
-      amount: Number.parseInt(el.approveAmountInput.value, 10) || 0,
-      virtual_account: el.approveVirtualAccountInput.value.trim() || item.virtual_account || null,
-    }),
-  });
-  updateRegistrationInState(data.item);
-  el.registrationActionStatus.textContent = "Payment saved and technician notification processed.";
-}
-
-async function activateSelectedRegistration() {
-  const item = selectedRegistration();
-  if (!item) {
-    el.registrationActionStatus.textContent = "Select a registration first.";
-    return;
-  }
-  el.registrationActionStatus.textContent = "Activating customer...";
-  const data = await registrationApi(`/admin/${item.id}/activate`, {
-    method: "POST",
-    body: JSON.stringify({ notes: "Installation completed from SQLite Explorer." }),
-  });
-  updateRegistrationInState(data.item);
-  el.registrationActionStatus.textContent = "Customer activated.";
 }
 
 function renderBillingImportScopes() {
@@ -903,14 +747,7 @@ async function loginDashboard(event) {
       showDashboard();
       el.passwordInput.value = "";
       setConnectionStatus("Dashboard unlocked.", "success");
-      switchView("learning");
-      await loadLearningIntents();
-      await loadLearningQueue();
-      await loadSources();
-      await loadBillingImportScopes();
-      if (currentPath()) {
-        await loadTables({ autoRunFirstTable: true });
-      }
+      window.location.replace("/sqlexplore");
       return;
     }
 
@@ -948,23 +785,18 @@ async function logoutDashboard() {
     state.learningIntents = [];
     state.billingImportScopes = [];
     state.messageDumps = [];
-    state.registrations = [];
     state.selectedLearningId = null;
     state.selectedDumpId = null;
-    state.selectedRegistrationId = null;
     el.learningList.innerHTML = "";
     el.learningCount.textContent = "No queue loaded.";
     renderLearningDetail();
     el.dumpList.innerHTML = "";
     el.dumpCount.textContent = "No dumps loaded.";
     renderMessageDumpDetail();
-    el.registrationsList.innerHTML = "";
-    el.registrationsCount.textContent = "No registrations loaded.";
-    renderRegistrationDetail();
     renderBillingImportScopes();
     setStatus("Ready", "idle");
     setConnectionStatus("Signed out. Enter the dashboard password to continue.");
-    showAuthGate("You have been signed out. Enter the dashboard password to continue.");
+    window.location.replace("/login/provider");
   }
 }
 
@@ -1247,11 +1079,6 @@ function bindEvents() {
     loadMessageDumps().catch(showError);
   });
 
-  el.registrationsTab.addEventListener("click", () => {
-    switchView("registrations");
-    loadRegistrations().catch(showError);
-  });
-
   el.explorerTab.addEventListener("click", () => {
     switchView("explorer");
   });
@@ -1291,43 +1118,6 @@ function bindEvents() {
 
   el.markDumpIgnoredButton.addEventListener("click", () => {
     reviewSelectedDump("ignored").catch(showError);
-  });
-
-  el.refreshRegistrationsButton.addEventListener("click", () => {
-    loadRegistrations().catch(showError);
-  });
-
-  el.registrationStatusFilter.addEventListener("change", () => {
-    state.selectedRegistrationId = null;
-    loadRegistrations().catch(showError);
-  });
-
-  el.registrationLimitInput.addEventListener("change", () => {
-    loadRegistrations().catch(showError);
-  });
-
-  el.registrationsList.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-registration-id]");
-    if (!button) return;
-    state.selectedRegistrationId = Number.parseInt(button.dataset.registrationId, 10);
-    renderRegistrations();
-    renderRegistrationDetail();
-  });
-
-  el.approveRegistrationButton.addEventListener("click", () => {
-    approveSelectedRegistration().catch(showError);
-  });
-
-  el.cashPaymentButton.addEventListener("click", () => {
-    markSelectedRegistrationPaid("cash").catch(showError);
-  });
-
-  el.bankPaymentButton.addEventListener("click", () => {
-    markSelectedRegistrationPaid("bank_transfer").catch(showError);
-  });
-
-  el.activateRegistrationButton.addEventListener("click", () => {
-    activateSelectedRegistration().catch(showError);
   });
 
   el.billingImportClientSelect.addEventListener("change", renderBillingImportScopes);
@@ -1430,7 +1220,8 @@ async function bootstrap() {
     if (!authenticated) {
       return;
     }
-    switchView("learning");
+    const initialView = providerViewFromPath(window.location.pathname);
+    switchView(initialView, { updateUrl: true });
     await loadLearningIntents();
     await loadLearningQueue();
     await loadSources();

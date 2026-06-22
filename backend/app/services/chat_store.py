@@ -3432,9 +3432,18 @@ class SQLiteChatStore:
             ).fetchall()
             return [self._decode_registration_row(conn, dict(row)) for row in rows]
 
-    def get_customer_registration(self, registration_id: int) -> dict[str, Any]:
+    def get_customer_registration(
+        self,
+        registration_id: int,
+        *,
+        client_id: int | None = None,
+    ) -> dict[str, Any]:
         with self._connect() as conn:
-            row = self._get_registration_row(conn, registration_id=registration_id)
+            row = self._get_registration_row(
+                conn,
+                registration_id=registration_id,
+                client_id=client_id,
+            )
             if not row:
                 raise ValueError("Registration was not found.")
             return self._decode_registration_row(conn, dict(row))
@@ -3447,6 +3456,7 @@ class SQLiteChatStore:
         payment_method: str = "virtual_account",
         virtual_account: str | None = None,
         notes: str | None = None,
+        client_id: int | None = None,
     ) -> dict[str, Any]:
         normalized_method = payment_method.strip().lower()
         if normalized_method not in {"cash", "virtual_account", "bank_transfer"}:
@@ -3454,15 +3464,19 @@ class SQLiteChatStore:
         safe_amount = max(0, int(amount if amount is not None else self.settings.registration_default_payment_amount))
         now = _utc_now()
         with self._connect() as conn:
-            registration = self._get_registration_row(conn, registration_id=registration_id)
+            registration = self._get_registration_row(
+                conn,
+                registration_id=registration_id,
+                client_id=client_id,
+            )
             if not registration:
                 raise ValueError("Registration was not found.")
             if not registration["customer_id"]:
                 raise ValueError("Registration has not been submitted by the customer.")
             customer_id = int(registration["customer_id"])
             customer = conn.execute(
-                "SELECT customer_code FROM customers WHERE id = ?",
-                (customer_id,),
+                "SELECT customer_code FROM customers WHERE id = ? AND client_id = ?",
+                (customer_id, registration["client_id"]),
             ).fetchone()
             if not customer:
                 raise ValueError("Registered customer was not found.")
@@ -3484,7 +3498,7 @@ class SQLiteChatStore:
                     payment_method = ?,
                     status = 'approved',
                     updated_at = ?
-                WHERE id = ?
+                WHERE id = ? AND client_id = ?
                 """,
                 (
                     customer_code,
@@ -3492,15 +3506,16 @@ class SQLiteChatStore:
                     normalized_method,
                     now,
                     customer_id,
+                    registration["client_id"],
                 ),
             )
             conn.execute(
                 """
                 UPDATE customer_registrations
                 SET status = 'approved', approved_at = COALESCE(approved_at, ?), updated_at = ?
-                WHERE id = ?
+                WHERE id = ? AND client_id = ?
                 """,
-                (now, now, registration_id),
+                (now, now, registration_id, registration["client_id"]),
             )
             conn.execute(
                 """
@@ -3532,7 +3547,11 @@ class SQLiteChatStore:
                     now,
                 ),
             )
-            row = self._get_registration_row(conn, registration_id=registration_id)
+            row = self._get_registration_row(
+                conn,
+                registration_id=registration_id,
+                client_id=client_id,
+            )
             return self._decode_registration_row(conn, dict(row))
 
     def save_payment_proof(
@@ -3603,13 +3622,18 @@ class SQLiteChatStore:
         virtual_account: str | None = None,
         provider_payload: dict[str, Any] | None = None,
         notes: str | None = None,
+        client_id: int | None = None,
     ) -> dict[str, Any]:
         normalized_method = payment_method.strip().lower()
         if normalized_method not in {"cash", "virtual_account", "bank_transfer"}:
             raise ValueError("payment_method must be cash, virtual_account, or bank_transfer.")
         now = _utc_now()
         with self._connect() as conn:
-            registration = self._get_registration_row(conn, registration_id=registration_id)
+            registration = self._get_registration_row(
+                conn,
+                registration_id=registration_id,
+                client_id=client_id,
+            )
             if not registration:
                 raise ValueError("Registration was not found.")
             if not registration["customer_id"]:
@@ -3652,24 +3676,29 @@ class SQLiteChatStore:
                 """
                 UPDATE customers
                 SET status = 'paid', payment_method = ?, updated_at = ?
-                WHERE id = ?
+                WHERE id = ? AND client_id = ?
                 """,
                 (
                     normalized_method,
                     now,
                     registration["customer_id"],
+                    registration["client_id"],
                 ),
             )
             conn.execute(
                 """
                 UPDATE customer_registrations
                 SET status = 'paid', paid_at = COALESCE(paid_at, ?), updated_at = ?
-                WHERE id = ?
+                WHERE id = ? AND client_id = ?
                 """,
-                (now, now, registration_id),
+                (now, now, registration_id, registration["client_id"]),
             )
             self._ensure_installation_task(conn, registration=dict(registration), now=now)
-            row = self._get_registration_row(conn, registration_id=registration_id)
+            row = self._get_registration_row(
+                conn,
+                registration_id=registration_id,
+                client_id=client_id,
+            )
             return self._decode_registration_row(conn, dict(row))
 
     def complete_customer_installation(
@@ -3677,10 +3706,15 @@ class SQLiteChatStore:
         *,
         registration_id: int,
         notes: str | None = None,
+        client_id: int | None = None,
     ) -> dict[str, Any]:
         now = _utc_now()
         with self._connect() as conn:
-            registration = self._get_registration_row(conn, registration_id=registration_id)
+            registration = self._get_registration_row(
+                conn,
+                registration_id=registration_id,
+                client_id=client_id,
+            )
             if not registration:
                 raise ValueError("Registration was not found.")
             if not registration["customer_id"]:
@@ -3689,27 +3723,27 @@ class SQLiteChatStore:
                 """
                 UPDATE customers
                 SET status = 'active', updated_at = ?
-                WHERE id = ?
+                WHERE id = ? AND client_id = ?
                 """,
-                (now, registration["customer_id"]),
+                (now, registration["customer_id"], registration["client_id"]),
             )
             conn.execute(
                 """
                 UPDATE customer_registrations
                 SET status = 'active', activated_at = COALESCE(activated_at, ?), updated_at = ?
-                WHERE id = ?
+                WHERE id = ? AND client_id = ?
                 """,
-                (now, now, registration_id),
+                (now, now, registration_id, registration["client_id"]),
             )
             task = conn.execute(
                 """
                 SELECT id
                 FROM technician_installation_tasks
-                WHERE customer_id = ?
+                WHERE customer_id = ? AND client_id = ?
                 ORDER BY id DESC
                 LIMIT 1
                 """,
-                (registration["customer_id"],),
+                (registration["customer_id"], registration["client_id"]),
             ).fetchone()
             if task:
                 conn.execute(
@@ -3720,7 +3754,11 @@ class SQLiteChatStore:
                     """,
                     (now, notes, now, task["id"]),
                 )
-            row = self._get_registration_row(conn, registration_id=registration_id)
+            row = self._get_registration_row(
+                conn,
+                registration_id=registration_id,
+                client_id=client_id,
+            )
             return self._decode_registration_row(conn, dict(row))
 
     def update_installation_task_notification(
@@ -4774,6 +4812,7 @@ class SQLiteChatStore:
         registration_id: int | None = None,
         token: str | None = None,
         conversation_id: int | None = None,
+        client_id: int | None = None,
     ) -> sqlite3.Row | None:
         filters = []
         params: list[Any] = []
@@ -4786,6 +4825,9 @@ class SQLiteChatStore:
         if conversation_id is not None:
             filters.append("cr.conversation_id = ?")
             params.append(conversation_id)
+        if client_id is not None:
+            filters.append("cr.client_id = ?")
+            params.append(client_id)
         if not filters:
             return None
         return conn.execute(

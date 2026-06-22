@@ -5,14 +5,40 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
 
 from app.api.router import api_router
+from app.auth.routes import auth_page_router
+from app.client_dashboard.routes import client_page_router
 from app.core.config import get_settings
+from app.provider_dashboard.routes import provider_page_router
 from app.services.chat_store import SQLiteChatStore
 
 settings = get_settings()
 logging.basicConfig(level=logging.INFO)
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+
+
+class DashboardStaticFiles(StaticFiles):
+    def __init__(
+        self,
+        *,
+        directory: Path,
+        allowed_files: set[str],
+        allowed_directories: set[str] | None = None,
+    ) -> None:
+        super().__init__(directory=directory)
+        self.allowed_files = allowed_files
+        self.allowed_directories = allowed_directories or set()
+
+    async def get_response(self, path: str, scope: dict[str, object]) -> Response:
+        normalized = path.lstrip("/")
+        top_level = normalized.split("/", 1)[0]
+        if Path(normalized).suffix.lower() in {".htm", ".html"}:
+            return Response(status_code=status.HTTP_404_NOT_FOUND)
+        if normalized not in self.allowed_files and top_level not in self.allowed_directories:
+            return Response(status_code=status.HTTP_404_NOT_FOUND)
+        return await super().get_response(path, scope)
 
 
 @asynccontextmanager
@@ -28,9 +54,50 @@ app = FastAPI(
 )
 
 if FRONTEND_DIR.exists():
-    app.mount("/sqlexplorer-assets", StaticFiles(directory=FRONTEND_DIR), name="sqlexplorer-assets")
-    app.mount("/dashboard-assets", StaticFiles(directory=FRONTEND_DIR), name="dashboard-assets")
-    app.mount("/registration-assets", StaticFiles(directory=FRONTEND_DIR), name="registration-assets")
+    app.mount(
+        "/provider-dashboard-assets",
+        DashboardStaticFiles(
+            directory=FRONTEND_DIR,
+            allowed_files={"sqlexplorer.css", "sqlexplorer.js"},
+            allowed_directories={"provider-dashboard"},
+        ),
+        name="provider-dashboard-assets",
+    )
+    app.mount(
+        "/client-dashboard-assets",
+        DashboardStaticFiles(
+            directory=FRONTEND_DIR,
+            allowed_files={"app.js", "styles.css"},
+            allowed_directories={"client-dashboard"},
+        ),
+        name="client-dashboard-assets",
+    )
+    app.mount(
+        "/sqlexplorer-assets",
+        DashboardStaticFiles(
+            directory=FRONTEND_DIR,
+            allowed_files={"sqlexplorer.css", "sqlexplorer.js"},
+            allowed_directories={"provider-dashboard"},
+        ),
+        name="sqlexplorer-assets",
+    )
+    app.mount(
+        "/dashboard-assets",
+        DashboardStaticFiles(
+            directory=FRONTEND_DIR,
+            allowed_files={"app.js", "styles.css"},
+            allowed_directories={"client-dashboard"},
+        ),
+        name="dashboard-assets",
+    )
+    app.mount(
+        "/registration-assets",
+        DashboardStaticFiles(
+            directory=FRONTEND_DIR,
+            allowed_files={"registration.css", "registration.js", "payment.js"},
+        ),
+        name="registration-assets",
+    )
 
 
 @app.get("/health", tags=["system"])
@@ -43,33 +110,6 @@ def health_check() -> dict[str, str]:
         "build_commit_short": settings.app_build_commit[:8],
         "build_branch": settings.app_build_branch,
     }
-
-
-@app.get("/", include_in_schema=False)
-@app.get("/dashboard", include_in_schema=False)
-@app.get("/dashboard/", include_in_schema=False)
-@app.get("/client-dashboard", include_in_schema=False)
-@app.get("/client-dashboard/", include_in_schema=False)
-def dashboard_root() -> FileResponse:
-    index_file = FRONTEND_DIR / "index.html"
-    if not index_file.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Dashboard frontend is not available.",
-        )
-    return FileResponse(index_file)
-
-
-@app.get("/sqlexplorer", include_in_schema=False)
-@app.get("/sqlexplorer/", include_in_schema=False)
-def dashboard() -> FileResponse:
-    index_file = FRONTEND_DIR / "sqlexplorer.html"
-    if not index_file.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="SQLite explorer frontend is not available.",
-        )
-    return FileResponse(index_file)
 
 
 @app.get("/register/{token}", include_in_schema=False)
@@ -94,4 +134,7 @@ def payment_form(token: str) -> FileResponse:
     return FileResponse(index_file)
 
 
+app.include_router(auth_page_router)
+app.include_router(provider_page_router)
+app.include_router(client_page_router)
 app.include_router(api_router, prefix=settings.api_v1_prefix)

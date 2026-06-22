@@ -11,6 +11,8 @@ from typing import Any
 from fastapi import HTTPException, Request, Response, status
 
 from app.core.config import Settings
+from app.auth.roles import ActorRole
+from app.provider_dashboard.permissions import ALL_PROVIDER_PERMISSIONS
 
 
 @dataclass(frozen=True)
@@ -18,12 +20,16 @@ class DashboardAuthState:
     authenticated: bool
     secret_configured: bool
     expires_at: int | None = None
+    actor: str | None = None
+    permissions: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "authenticated": self.authenticated,
             "secret_configured": self.secret_configured,
             "expires_at": self.expires_at,
+            "actor": self.actor,
+            "permissions": list(self.permissions),
         }
 
 
@@ -33,7 +39,7 @@ class DashboardAuthService:
 
     def status(self, request: Request) -> DashboardAuthState:
         if not self.settings.dashboard_secret:
-            return DashboardAuthState(authenticated=True, secret_configured=False)
+            return DashboardAuthState(authenticated=False, secret_configured=False)
 
         token = request.cookies.get(self.settings.dashboard_cookie_name)
         payload = self._decode_token(token) if token else None
@@ -44,11 +50,19 @@ class DashboardAuthService:
             authenticated=True,
             secret_configured=True,
             expires_at=int(payload["exp"]),
+            actor=str(payload.get("actor") or ActorRole.PROVIDER.value),
+            permissions=tuple(
+                str(permission)
+                for permission in payload.get("permissions", sorted(ALL_PROVIDER_PERMISSIONS))
+            ),
         )
 
     def login(self, password: str, response: Response) -> DashboardAuthState:
         if not self.settings.dashboard_secret:
-            return DashboardAuthState(authenticated=True, secret_configured=False)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Provider dashboard authentication is not configured.",
+            )
 
         if not hmac.compare_digest(password, self.settings.dashboard_secret):
             raise HTTPException(
@@ -63,7 +77,7 @@ class DashboardAuthService:
             value=token,
             httponly=True,
             samesite="lax",
-            secure=False,
+            secure=self.settings.dashboard_cookie_secure,
             path="/",
             max_age=self.settings.dashboard_session_hours * 3600,
         )
@@ -71,6 +85,8 @@ class DashboardAuthService:
             authenticated=True,
             secret_configured=True,
             expires_at=expires_at,
+            actor=ActorRole.PROVIDER.value,
+            permissions=tuple(sorted(ALL_PROVIDER_PERMISSIONS)),
         )
 
     def logout(self, response: Response) -> None:
@@ -80,15 +96,48 @@ class DashboardAuthService:
         )
 
     def require_auth(self, request: Request) -> None:
-        if self.status(request).authenticated:
+        state = self.status(request)
+        if state.authenticated and state.actor == ActorRole.PROVIDER.value:
             return
+        if state.authenticated:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Provider role is required.",
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Dashboard login required.",
         )
 
+    def require_permission(self, request: Request, permission: str) -> DashboardAuthState:
+        state = self.status(request)
+        if not state.authenticated:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Provider dashboard login required.",
+            )
+        if state.actor != ActorRole.PROVIDER.value:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Provider role is required.",
+            )
+        if permission not in state.permissions:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Provider permission `{permission}` is required.",
+            )
+        return state
+
     def _encode_token(self, expires_at: int) -> str:
-        payload = json.dumps({"exp": expires_at}, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        payload = json.dumps(
+            {
+                "actor": ActorRole.PROVIDER.value,
+                "exp": expires_at,
+                "permissions": sorted(ALL_PROVIDER_PERMISSIONS),
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
         encoded_payload = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
         signature = hmac.new(
             self.settings.dashboard_secret.encode("utf-8"),
@@ -116,7 +165,18 @@ class DashboardAuthService:
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
             return None
 
-        exp = int(payload.get("exp", 0))
+        try:
+            exp = int(payload.get("exp", 0))
+        except (TypeError, ValueError):
+            return None
         if exp < int(time.time()):
             return None
-        return {"exp": exp}
+        actor = str(payload.get("actor") or ActorRole.PROVIDER.value)
+        permissions = payload.get("permissions")
+        if not isinstance(permissions, list):
+            permissions = sorted(ALL_PROVIDER_PERMISSIONS)
+        return {
+            "actor": actor,
+            "exp": exp,
+            "permissions": [str(permission) for permission in permissions],
+        }
