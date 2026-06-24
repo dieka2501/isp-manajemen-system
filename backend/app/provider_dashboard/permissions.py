@@ -6,6 +6,7 @@ class ProviderPermission(StrEnum):
     PLATFORM_READ = "provider.platform.read"
     PLATFORM_MANAGE = "provider.platform.manage"
     LEARNING_MANAGE = "provider.learning.manage"
+    CHAT_TEST_LAB_MANAGE = "provider.chat_test_lab.manage"
     MESSAGE_DUMPS_MANAGE = "provider.message_dumps.manage"
     BILLING_MANAGE = "provider.billing.manage"
     SQLITE_MANAGE = "provider.sqlite.manage"

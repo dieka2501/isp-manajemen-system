@@ -13,6 +13,24 @@ from app.services.llm_response import LLMResponseGenerator
 logger = logging.getLogger(__name__)
 
 
+def finalize_conversation_state(
+    *,
+    state: dict[str, Any] | None,
+    knowledge: dict[str, Any],
+    user_message: str,
+    reply_text: str,
+) -> dict[str, Any] | None:
+    """Apply the same final state fields for production and read-only simulations."""
+    if not state:
+        return None
+    finalized = dict(state)
+    finalized["current_topic"] = knowledge.get("topic") or finalized.get("current_topic")
+    finalized["last_user_message"] = user_message
+    finalized["last_bot_response"] = reply_text
+    finalized["last_bot_question"] = reply_text
+    return finalized
+
+
 class ISPCSChatService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -110,7 +128,7 @@ class ISPCSChatService:
                 "Kalau Kakak mau lanjut pendaftaran, isi form ini ya: "
                 f"{registration_invitation['registration_url']}"
             )
-        state_after = self._finalize_state(
+        state_after = finalize_conversation_state(
             state=agent_response.memory_update,
             knowledge=knowledge,
             user_message=message_text,
@@ -254,20 +272,3 @@ class ISPCSChatService:
         if not invitation.get("created"):
             return None
         return invitation
-
-    def _finalize_state(
-        self,
-        *,
-        state: dict[str, Any] | None,
-        knowledge: dict[str, Any],
-        user_message: str,
-        reply_text: str,
-    ) -> dict[str, Any] | None:
-        if not state:
-            return None
-        finalized = dict(state)
-        finalized["current_topic"] = knowledge.get("topic") or finalized.get("current_topic")
-        finalized["last_user_message"] = user_message
-        finalized["last_bot_response"] = reply_text
-        finalized["last_bot_question"] = reply_text
-        return finalized

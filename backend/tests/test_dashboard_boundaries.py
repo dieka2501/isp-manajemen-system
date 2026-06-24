@@ -357,6 +357,8 @@ class DashboardBoundaryTests(unittest.TestCase):
         self.assertIn("/client-dashboard/{dashboard_path:path}", paths)
         self.assertIn("/api/v1/provider/sqlite/sources", paths)
         self.assertIn("/api/v1/provider/message-dumps/items", paths)
+        self.assertIn("/api/v1/provider/chat/dry-run/context", paths)
+        self.assertIn("/api/v1/provider/chat/dry-run/execute", paths)
         self.assertIn("/api/v1/client/summary", paths)
         self.assertIn("/api/v1/client/registrations/items", paths)
         self.assertIn("/api/v1/client/registrations/{registration_id}/approve", paths)
@@ -365,6 +367,11 @@ class DashboardBoundaryTests(unittest.TestCase):
         self.assertNotIn("/api/v1/provider/registrations/message-dumps", paths)
         self.assertNotIn("/api/v1/sqlite/sources", paths)
         self.assertNotIn("/api/v1/chat/clients", paths)
+
+        self.assertIn(
+            ProviderPermission.CHAT_TEST_LAB_MANAGE.value,
+            {permission.value for permission in ProviderPermission},
+        )
 
         self.assertEqual(legacy_client_dashboard().headers["location"], "/client-dashboard")
         self.assertEqual(legacy_provider_dashboard().headers["location"], "/sqlexplore")
