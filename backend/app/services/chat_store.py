@@ -1881,8 +1881,15 @@ class SQLiteChatStore:
         *,
         client_id: int | None,
         device_id: int | None,
+        ensure_default: bool = True,
     ) -> tuple[int, int]:
-        default_scope = self._ensure_default_catalog_scope(conn)
+        default_scope = (
+            self._ensure_default_catalog_scope(conn)
+            if ensure_default
+            else self._find_default_catalog_scope(conn)
+        )
+        if not default_scope:
+            raise ValueError("Default intent catalog scope is not initialized.")
         if client_id is None or device_id is None:
             return default_scope
 
@@ -1898,6 +1905,33 @@ class SQLiteChatStore:
         if scoped_row:
             return client_id, device_id
         return default_scope
+
+    def _find_default_catalog_scope(
+        self,
+        conn: sqlite3.Connection,
+    ) -> tuple[int, int] | None:
+        row = conn.execute(
+            """
+            SELECT c.id AS client_id, d.id AS device_id
+            FROM accounts a
+            JOIN clients c
+              ON c.account_id = a.id
+             AND c.external_ref = ?
+            JOIN devices d
+              ON d.client_id = c.id
+             AND d.device_identifier = ?
+            WHERE a.slug = ?
+            LIMIT 1
+            """,
+            (
+                DEFAULT_CATALOG_EXTERNAL_REF,
+                DEFAULT_CATALOG_DEVICE_IDENTIFIER,
+                self.settings.chat_auto_account_slug,
+            ),
+        ).fetchone()
+        if not row:
+            return None
+        return int(row["client_id"]), int(row["device_id"])
 
     def _ensure_column(
         self,
@@ -2827,6 +2861,7 @@ class SQLiteChatStore:
         *,
         client_id: int | None = None,
         device_id: int | None = None,
+        read_only: bool = False,
     ) -> dict[str, Any]:
         with self._connect() as conn:
             intent_scope = self._catalog_scope_for_table(
@@ -2834,54 +2869,63 @@ class SQLiteChatStore:
                 "intents",
                 client_id=client_id,
                 device_id=device_id,
+                ensure_default=not read_only,
             )
             keyword_scope = self._catalog_scope_for_table(
                 conn,
                 "keywords",
                 client_id=client_id,
                 device_id=device_id,
+                ensure_default=not read_only,
             )
             entity_keyword_scope = self._catalog_scope_for_table(
                 conn,
                 "entity_keywords",
                 client_id=client_id,
                 device_id=device_id,
+                ensure_default=not read_only,
             )
             normalization_scope = self._catalog_scope_for_table(
                 conn,
                 "normalization_rules",
                 client_id=client_id,
                 device_id=device_id,
+                ensure_default=not read_only,
             )
             sample_scope = self._catalog_scope_for_table(
                 conn,
                 "sample_utterances",
                 client_id=client_id,
                 device_id=device_id,
+                ensure_default=not read_only,
             )
             mapping_scope = self._catalog_scope_for_table(
                 conn,
                 "intent_mappings",
                 client_id=client_id,
                 device_id=device_id,
+                ensure_default=not read_only,
             )
             package_scope = self._catalog_scope_for_table(
                 conn,
                 "internet_packages",
                 client_id=client_id,
                 device_id=device_id,
+                ensure_default=not read_only,
             )
             coverage_scope = self._catalog_scope_for_table(
                 conn,
                 "coverage_areas",
                 client_id=client_id,
                 device_id=device_id,
+                ensure_default=not read_only,
             )
             payment_scope = self._catalog_scope_for_table(
                 conn,
                 "payment_methods",
                 client_id=client_id,
                 device_id=device_id,
+                ensure_default=not read_only,
             )
             intents = conn.execute(
                 """
@@ -3048,6 +3092,7 @@ class SQLiteChatStore:
         *,
         client_id: int | None = None,
         device_id: int | None = None,
+        read_only: bool = False,
     ) -> list[dict[str, Any]]:
         with self._connect() as conn:
             intent_scope = self._catalog_scope_for_table(
@@ -3055,6 +3100,7 @@ class SQLiteChatStore:
                 "intents",
                 client_id=client_id,
                 device_id=device_id,
+                ensure_default=not read_only,
             )
             rows = conn.execute(
                 """

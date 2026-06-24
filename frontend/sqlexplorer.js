@@ -1,5 +1,6 @@
 import { ProviderDashboardLayout } from "/provider-dashboard-assets/provider-dashboard/layouts/provider-dashboard-layout.js";
 import { providerNavigation } from "/provider-dashboard-assets/provider-dashboard/navigation/provider-navigation.js";
+import { ChatTestLabPage } from "/provider-dashboard-assets/provider-dashboard/pages/chat-test-lab.js";
 import { providerPermissions } from "/provider-dashboard-assets/provider-dashboard/permissions/provider-permissions.js";
 import { providerRoutes, providerViewFromPath } from "/provider-dashboard-assets/provider-dashboard/routes/provider-routes.js";
 
@@ -19,7 +20,7 @@ const state = {
   loading: false,
   authenticated: false,
   secretConfigured: false,
-  activeView: "learning",
+  activeView: "chatTestLab",
   learningItems: [],
   learningIntents: [],
   selectedLearningId: null,
@@ -32,9 +33,11 @@ const state = {
 const el = {
   authGate: document.getElementById("authGate"),
   dashboardShell: document.getElementById("dashboardShell"),
+  chatTestLabTab: document.getElementById("chatTestLabTab"),
   learningTab: document.getElementById("learningTab"),
   dumpTab: document.getElementById("dumpTab"),
   explorerTab: document.getElementById("explorerTab"),
+  chatTestLabView: document.getElementById("chatTestLabView"),
   learningView: document.getElementById("learningView"),
   messageDumpView: document.getElementById("messageDumpView"),
   explorerView: document.getElementById("explorerView"),
@@ -107,6 +110,12 @@ const el = {
   markDumpIgnoredButton: document.getElementById("markDumpIgnoredButton"),
   dumpActionStatus: document.getElementById("dumpActionStatus"),
 };
+
+const chatTestLabPage = new ChatTestLabPage({
+  root: el.chatTestLabView,
+  api: chatApi,
+  onError: showError,
+});
 
 const STORAGE_KEYS = {
   sourcePath: "sqliteExplorer.sourcePath",
@@ -297,10 +306,12 @@ function setCurrentSource(path) {
 
 function switchView(view, { updateUrl = true } = {}) {
   state.activeView = view;
+  el.chatTestLabView.classList.toggle("hidden", view !== "chatTestLab");
   el.learningView.classList.toggle("hidden", view !== "learning");
   el.messageDumpView.classList.toggle("hidden", view !== "dumps");
   el.explorerView.classList.toggle("hidden", view !== "explorer");
   const tabs = [
+    [el.chatTestLabTab, "chatTestLab"],
     [el.learningTab, "learning"],
     [el.dumpTab, "dumps"],
     [el.explorerTab, "explorer"],
@@ -316,6 +327,9 @@ function switchView(view, { updateUrl = true } = {}) {
   }
   if (view === "dumps" && state.messageDumps.length === 0) {
     loadMessageDumps().catch(showError);
+  }
+  if (view === "chatTestLab") {
+    chatTestLabPage.ensureLoaded().catch(showError);
   }
   if (view === "explorer" && state.billingImportScopes.length === 0) {
     loadBillingImportScopes().catch(showError);
@@ -1066,6 +1080,10 @@ function bindEvents() {
     loginDashboard(event).catch(showError);
   });
 
+  el.chatTestLabTab.addEventListener("click", () => {
+    switchView("chatTestLab");
+  });
+
   el.learningTab.addEventListener("click", () => {
     switchView("learning");
     if (!state.learningIntents.length) {
@@ -1081,6 +1099,11 @@ function bindEvents() {
 
   el.explorerTab.addEventListener("click", () => {
     switchView("explorer");
+    if (!state.sources.length) {
+      loadSources()
+        .then(() => (currentPath() ? loadTables({ autoRunFirstTable: true }) : null))
+        .catch(showError);
+    }
   });
 
   el.logoutButton.addEventListener("click", () => {
@@ -1213,6 +1236,7 @@ function showError(error) {
 
 async function bootstrap() {
   restorePreferences();
+  chatTestLabPage.mount();
   bindEvents();
   await loadRuntimeVersion();
   try {
@@ -1222,13 +1246,17 @@ async function bootstrap() {
     }
     const initialView = providerViewFromPath(window.location.pathname);
     switchView(initialView, { updateUrl: true });
-    await loadLearningIntents();
-    await loadLearningQueue();
-    await loadSources();
-    await loadBillingImportScopes();
-    if (currentPath()) {
-      el.pathInput.value = currentPath();
-      await loadTables({ autoRunFirstTable: true });
+    if (initialView === "learning") {
+      await loadLearningIntents();
+      await loadLearningQueue();
+    }
+    if (initialView === "explorer") {
+      await loadSources();
+      await loadBillingImportScopes();
+      if (currentPath()) {
+        el.pathInput.value = currentPath();
+        await loadTables({ autoRunFirstTable: true });
+      }
     }
   } catch (error) {
     showError(error);

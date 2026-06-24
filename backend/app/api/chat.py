@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from app.auth.guards import provider_guard
 from app.core.config import get_settings
+from app.provider_dashboard.dry_run import DryRunExecuteRequest, DryRunTestLab
 from app.provider_dashboard.permissions import ProviderPermission
 from app.services.chat_store import SQLiteChatStore
 from app.services.isp_agent import ISPCSAgent
@@ -232,6 +233,39 @@ def list_internet_packages(
 def preview_agent_reply(payload: AgentPreviewRequest) -> dict[str, object]:
     store = _store()
     return {"item": ISPCSAgent(store.get_intent_agent_catalog()).answer(payload.message).as_dict()}
+
+
+@chat_router.get(
+    "/dry-run/context",
+    dependencies=[Depends(provider_guard(ProviderPermission.CHAT_TEST_LAB_MANAGE))],
+)
+def dry_run_context(
+    client_id: int | None = Query(default=None, gt=0),
+    device_id: int | None = Query(default=None, gt=0),
+) -> dict[str, object]:
+    try:
+        item = DryRunTestLab(get_settings(), store=_store()).context(
+            client_id=client_id,
+            device_id=device_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return {"item": item}
+
+
+@chat_router.post(
+    "/dry-run/execute",
+    dependencies=[Depends(provider_guard(ProviderPermission.CHAT_TEST_LAB_MANAGE))],
+)
+def execute_dry_run(payload: DryRunExecuteRequest) -> dict[str, object]:
+    try:
+        item = DryRunTestLab(get_settings(), store=_store()).execute(payload)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    return {"item": item}
 
 
 @chat_router.get(
